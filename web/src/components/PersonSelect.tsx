@@ -4,13 +4,15 @@ import { Select } from "./ui";
 export type Person = { address: string; name: string };
 
 /** Pick from people who accepted an invitation. There is deliberately no way to type an arbitrary address. */
-export function PersonSelect({ value, onChange, people, taken = [], testId, placeholder = "Choose someone…" }: {
+export function PersonSelect({ value, onChange, people, taken = [], testId, placeholder = "Choose someone…", verified }: {
   value: string;
   onChange: (address: string) => void;
   people: Person[];
   taken?: string[]; // addresses already chosen elsewhere
   testId?: string;
   placeholder?: string;
+  /** When given, people who verified an identity are marked in the list. */
+  verified?: (address: string) => boolean;
 }) {
   const lowerTaken = taken.map((t) => t.toLowerCase());
   return (
@@ -18,7 +20,7 @@ export function PersonSelect({ value, onChange, people, taken = [], testId, plac
       <option value="">{placeholder}</option>
       {people.map((p) => (
         <option key={p.address} value={p.address} disabled={lowerTaken.includes(p.address.toLowerCase()) && p.address.toLowerCase() !== value.toLowerCase()}>
-          {p.name || "Unnamed"} · {p.address.slice(0, 6)}…{p.address.slice(-4)}
+          {p.name || "Unnamed"} · {p.address.slice(0, 6)}…{p.address.slice(-4)}{verified?.(p.address) ? " · ✓ verified" : ""}
         </option>
       ))}
     </Select>

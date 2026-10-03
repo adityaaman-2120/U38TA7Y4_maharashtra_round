@@ -3,10 +3,21 @@ import { heirloomAbi, heirloomDeployments } from "./contracts";
 
 export { heirloomAbi };
 
-export function getDeployment(chainId: number | undefined): { address: Address; startBlock: number } | null {
+export type Deployment = {
+  address: Address;
+  startBlock: number;
+  /** The Anon Aadhaar verifier this Heirloom was deployed with (zero address when identity is disabled). */
+  anonAadhaar?: Address;
+  anonAadhaarMode?: string;
+  nullifierSeed?: string;
+};
+
+export function getDeployment(chainId: number | undefined): Deployment | null {
   if (chainId === undefined) return null;
-  const d = (heirloomDeployments as Record<number, { address: string; startBlock: number }>)[chainId];
-  return d ? { address: d.address as Address, startBlock: d.startBlock } : null;
+  const d = (heirloomDeployments as unknown as Record<number, { address: string; startBlock: number; anonAadhaar?: string; anonAadhaarMode?: string; nullifierSeed?: string }>)[chainId];
+  return d
+    ? { address: d.address as Address, startBlock: d.startBlock, anonAadhaar: d.anonAadhaar as Address | undefined, anonAadhaarMode: d.anonAadhaarMode, nullifierSeed: d.nullifierSeed }
+    : null;
 }
 
 export const EVIDENCE_TYPES = ["Death", "Incapacity", "Any"] as const;
@@ -19,6 +30,8 @@ export type Policy = {
   unlockAfter: number;
   evidenceType: number;
   attestationDeadline: number;
+  requireBeneficiaryZK: boolean;
+  requireAge18: boolean;
 };
 
 export type Vault = {
@@ -28,6 +41,7 @@ export type Vault = {
   heartbeatInterval: number;
   lastHeartbeat: number;
   epoch: number;
+  requireVerifiedGuardians: boolean;
   guardians: Address[];
 };
 
@@ -68,6 +82,8 @@ export const toPolicy = (p: any): Policy => ({
   unlockAfter: Number(p.unlockAfter),
   evidenceType: Number(p.evidenceType),
   attestationDeadline: Number(p.attestationDeadline),
+  requireBeneficiaryZK: Boolean(p.requireBeneficiaryZK),
+  requireAge18: Boolean(p.requireAge18),
 });
 
 export const toVault = (v: any): Vault => ({
@@ -77,6 +93,7 @@ export const toVault = (v: any): Vault => ({
   heartbeatInterval: Number(v.heartbeatInterval),
   lastHeartbeat: Number(v.lastHeartbeat),
   epoch: Number(v.epoch),
+  requireVerifiedGuardians: Boolean(v.requireVerifiedGuardians),
   guardians: [...v.guardians],
 });
 

@@ -1,5 +1,5 @@
 "use client";
-import { useState } from "react";
+import { useRef, useState } from "react";
 import { EVIDENCE_TYPES } from "@/lib/contract";
 import { claimState, loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
 import { combineShares, decryptFile, downloadBytes, eciesDecrypt, fromHex, isLetter, letterTitle, sealEvidence } from "@/lib/crypto";
@@ -10,6 +10,8 @@ import { Badge, Btn, EmptyState, Label, ListSkeleton, Select, Stat, StatGrid } f
 import { humanError } from "@/lib/errors";
 import { ClaimInfo } from "./ClaimInfo";
 import { Letter } from "./Letter";
+import { ZkProofPanel } from "./ZkProofPanel";
+import { NO_PROOF, type ZkProof } from "@/lib/zk/proof";
 import { useKey } from "./KeyProvider";
 
 type Row = { asset: Asset; vault: Vault; bundle: ClaimBundle | null };
@@ -64,9 +66,11 @@ function AssetRow({ row }: { row: Row }) {
   const [verified, setVerified] = useState("");
   const [letter, setLetter] = useState<{ title: string; text: string } | null>(null);
   const [file, setFile] = useState<File | null>(null);
+  const [zk, setZk] = useState<null | "claim" | "age">(null);
+  const expectedClaim = useRef(0);
   const p = asset.policy;
   const [evType, setEvType] = useState(p.evidenceType === 2 ? 0 : p.evidenceType);
-  const { publicClient, deployment } = useHeirloom();
+  const { address, publicClient, deployment } = useHeirloom();
 
   const st = bundle ? claimState(bundle) : null;
   const canRaise = !asset.released && (!bundle || (!st!.open && bundle.claim.status !== 3));
@@ -87,8 +91,9 @@ function AssetRow({ row }: { row: Row }) {
     }
   };
 
-  const raise = () => guard(async () => {
-    if (!file || !publicClient || !deployment) return;
+  /** Encrypts and pins the evidence, then raises the claim. `proof` is ignored by the contract unless the policy requires one. */
+  const raiseWith = async (proof: ZkProof, expectedId?: number) => {
+    if (!file || !publicClient || !deployment) throw new Error("Choose the evidence file first.");
     setProgress("Reading reviewers' public keys…");
     const reviewers = [...vault.guardians, vault.owner];
     const recipients = await Promise.all(reviewers.map(async (a) => ({ address: a, publicKey: await readers.encryptionKey(publicClient, deployment.address, a) })));
@@ -97,9 +102,27 @@ function AssetRow({ row }: { row: Row }) {
     const { bytes, plaintextHash } = await sealEvidence(file, recipients);
     setProgress("Uploading encrypted evidence…");
     const cid = await pinCiphertext(bytes);
+    if (expectedId !== undefined) {
+      // The proof is bound to the id this claim will get. If someone else's claim landed meanwhile, the id moved on.
+      if ((await readers.claimCount(publicClient, deployment.address)) + 1 !== expectedId) {
+        throw new Error("Another claim was raised while your proof was being made, so it no longer matches. Please try again.");
+      }
+    }
     setProgress("Waiting for wallet…");
-    if (await send("Raise claim", "raiseClaim", [BigInt(asset.id), evType, plaintextHash, cid])) setFile(null);
-  });
+    if (!(await send("Raise claim", "raiseClaim", [BigInt(asset.id), evType, plaintextHash, cid, proof]))) throw new Error("The claim transaction did not go through.");
+    setFile(null);
+  };
+
+  const raise = () => {
+    if (p.requireBeneficiaryZK) return setZk("claim"); // identity proof first, then the claim
+    return guard(() => raiseWith(NO_PROOF));
+  };
+
+  const finalize = () => {
+    if (!bundle) return;
+    if (p.requireAge18) return setZk("age"); // proof that the beneficiary is over 18, then finalize
+    return guard(async () => { await send("Finalize claim", "finalizeClaim", [BigInt(bundle.claim.id), NO_PROOF]); });
+  };
 
   const decrypt = () => guard(async () => {
     if (!bundle) return;
@@ -144,7 +167,7 @@ function AssetRow({ row }: { row: Row }) {
 
       {bundle && (
         <ClaimInfo bundle={bundle}>
-          {st!.open && <Btn disabled={busy} data-testid="finalize" onClick={() => guard(async () => { await send("Finalize claim", "finalizeClaim", [BigInt(bundle.claim.id)]); })}>Finalize</Btn>}
+          {st!.open && <Btn disabled={busy || zk !== null} data-testid="finalize" onClick={finalize}>{p.requireAge18 ? "Finalize (proof of age)" : "Finalize"}</Btn>}
           {bundle.claim.status === 3 && (
             <div className="w-full space-y-1">
               <p className="text-xs text-muted">Shares released by guardians: {released} / {vault.threshold} needed</p>
@@ -171,10 +194,50 @@ function AssetRow({ row }: { row: Row }) {
             </Label>
           </div>
           {tooBig && <p className="text-xs text-bad">Evidence file is too large.</p>}
-          <Btn disabled={busy || !file || tooBig || now < availableAt || stale || vault.frozen} data-testid="raise-claim" onClick={raise}>
-            {busy && progress ? progress : "Raise claim"}
+          {p.requireBeneficiaryZK && <p className="text-xs text-muted" data-testid="zk-claim-note">The owner requires you to prove your identity (zero-knowledge) to raise this claim. You will be asked for your Aadhaar QR; it never leaves your browser.</p>}
+          {p.requireAge18 && <p className="text-xs text-muted">Finalizing will also need a proof that you are over 18. Only that one fact is proven.</p>}
+          <Btn disabled={busy || zk !== null || !file || tooBig || now < availableAt || stale || vault.frozen} data-testid="raise-claim" onClick={raise}>
+            {busy && progress ? progress : p.requireBeneficiaryZK ? "Raise claim (identity proof)" : "Raise claim"}
           </Btn>
         </div>
+      )}
+      {zk === "claim" && (
+        <>
+          <ZkProofPanel
+            title="Prove your identity to raise this claim"
+            intro="The owner asked that only the verified person behind this wallet can start a claim. The proof is made for this claim only and cannot be reused."
+            actionLabel="Generate proof and raise claim"
+            signal={async () => {
+              const next = (await readers.claimCount(publicClient!, deployment!.address)) + 1;
+              expectedClaim.current = next;
+              return readers.signal(publicClient!, deployment!.address, "claimSignal", [BigInt(next), address]);
+            }}
+            onProof={async (proof) => {
+              try {
+                await raiseWith(proof, expectedClaim.current);
+                setZk(null);
+              } finally {
+                setProgress("");
+              }
+            }}
+            onCancel={() => setZk(null)}
+          />
+          {progress && <p className="text-xs text-muted" data-testid="zk-progress">{progress}</p>}
+        </>
+      )}
+      {zk === "age" && bundle && (
+        <ZkProofPanel
+          title="Prove you are over 18 to finalize"
+          intro="The owner asked for proof that the beneficiary is an adult. This proves that single fact, and is made for this claim only."
+          revealAge
+          actionLabel="Generate proof and finalize"
+          signal={() => readers.signal(publicClient!, deployment!.address, "ageSignal", [BigInt(bundle.claim.id), asset.beneficiary])}
+          onProof={async (proof) => {
+            if (!(await send("Finalize claim", "finalizeClaim", [BigInt(bundle.claim.id), proof]))) throw new Error("The finalize transaction did not go through.");
+            setZk(null);
+          }}
+          onCancel={() => setZk(null)}
+        />
       )}
       {verified && <p className="font-semibold text-ok" data-testid="integrity">{verified}</p>}
       {letter && <Letter title={letter.title} text={letter.text} onClose={() => setLetter(null)} />}

@@ -2,10 +2,14 @@
 pragma solidity 0.8.24;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IAnonAadhaar} from "@anon-aadhaar/contracts/interfaces/IAnonAadhaar.sol";
 
 /// @title Heirloom v2 - trust-minimized digital inheritance
 /// @notice The chain holds only ciphertext pointers, hashes, public keys and ECIES-encrypted key shares.
 ///         No plaintext, no private keys, no PII.
+/// @dev Optional identity layer: Anon Aadhaar zero-knowledge proofs ("this person holds a valid Aadhaar", and optionally
+///      "is over 18") bound to a per-app nullifier. Only the nullifier, a pseudonym that is the same for one person in
+///      this app and unlinkable to their Aadhaar, is ever stored. No Aadhaar data, no date of birth.
 contract Heirloom is ReentrancyGuard {
     // ------------------------------------------------------------------ types
 
@@ -20,6 +24,17 @@ contract Heirloom is ReentrancyGuard {
         uint64 unlockAfter; // absolute timestamp; 0 = no time lock
         EvidenceType evidenceType; // Any accepts Death or Incapacity claims
         uint64 attestationDeadline; // seconds after raisedAt; afterwards the vault threshold suffices
+        bool requireBeneficiaryZK; // raiseClaim needs a fresh ZK proof by the beneficiary's registered identity
+        bool requireAge18; // finalizeClaim needs a ZK proof that the beneficiary is over 18 (no date of birth is stored)
+    }
+
+    /// @notice An Anon Aadhaar proof as the verifier takes it. The seed and signal are NOT supplied by the caller:
+    ///         the contract fixes the seed and derives the signal, which is what binds a proof to one use.
+    struct ZkProof {
+        uint256 nullifier;
+        uint256 timestamp; // when the Aadhaar QR was signed (rounded down to the hour)
+        uint256[4] revealArray; // [ageAbove18, gender, pincode, state]; 0 where the field was not revealed
+        uint256[8] groth16Proof;
     }
 
     struct Vault {
@@ -29,6 +44,7 @@ contract Heirloom is ReentrancyGuard {
         uint64 heartbeatInterval;
         uint64 lastHeartbeat;
         uint32 epoch; // bumped when guardians rotate; assets must be re-shared to the new epoch
+        bool requireVerifiedGuardians; // every guardian must hold a verified identity, one person per guardian
         address[] guardians;
     }
 
@@ -64,6 +80,12 @@ contract Heirloom is ReentrancyGuard {
 
     uint64 public constant MIN_PERIOD = 5 minutes;
     uint8 public constant MIN_GUARDIANS = 3;
+    /// @dev The verifier does not check proof age, so Heirloom does. QR timestamps are rounded down to the hour.
+    uint64 public constant MAX_PROOF_AGE = 3 hours;
+    uint256 private constant SNARK_FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617;
+    bytes32 private constant IDENTITY_DOMAIN = keccak256("heirloom.identity.v1");
+    bytes32 private constant CLAIM_DOMAIN = keccak256("heirloom.claim.v1");
+    bytes32 private constant AGE_DOMAIN = keccak256("heirloom.age18.v1");
     uint8 public constant MAX_GUARDIANS = 7;
 
     mapping(address => bytes) private encryptionKeys;
@@ -80,6 +102,14 @@ contract Heirloom is ReentrancyGuard {
     mapping(uint256 => mapping(address => Response)) private responses;
     mapping(uint256 => mapping(address => bool)) private fraudFlagged;
     mapping(uint256 => mapping(uint256 => bytes)) private releasedShares; // claimId => guardian index => share
+
+    // Identity (Anon Aadhaar). The verifier may be address(0) on chains without one; identity features then revert.
+    IAnonAadhaar public immutable verifier;
+    /// @notice App-specific seed the nullifier is derived from: the same person gets the same nullifier here, and an
+    ///         unrelated one in any other app.
+    uint256 public immutable nullifierSeed;
+    mapping(uint256 => address) public nullifierOwner; // nullifier => the one address bound to it
+    mapping(address => uint256) public nullifierOf; // address => its nullifier (0 = not verified)
 
     // ------------------------------------------------------------------ errors
 
@@ -116,12 +146,24 @@ contract Heirloom is ReentrancyGuard {
     error NotYetUnlocked();
     error NotEnoughApprovals();
     error ShareAlreadyReleased();
+    error IdentityDisabled();
+    error InvalidSeed();
+    error InvalidProof();
+    error StaleProof();
+    error AlreadyVerified();
+    error NullifierAlreadyUsed();
+    error GuardianNotVerified(address guardian);
+    error BeneficiaryNotVerified(address beneficiary);
+    error NullifierMismatch();
+    error AgeNotProven();
 
     // ------------------------------------------------------------------ events
 
     event EncryptionKeyRegistered(address indexed account, bytes pubKey);
-    event VaultCreated(address indexed owner, address[] guardians, uint8 threshold, uint64 heartbeatInterval);
-    event GuardiansRotated(address indexed owner, address[] guardians, uint8 threshold, uint32 epoch);
+    event VaultCreated(address indexed owner, address[] guardians, uint8 threshold, uint64 heartbeatInterval, bool requireVerifiedGuardians);
+    event GuardiansRotated(address indexed owner, address[] guardians, uint8 threshold, uint32 epoch, bool requireVerifiedGuardians);
+    /// @notice Binds an address to a verified, unique person. The nullifier is a per-app pseudonym; no personal data.
+    event IdentityVerified(address indexed account, uint256 nullifier);
     event Heartbeat(address indexed owner, uint64 timestamp);
     event PanicFrozen(address indexed owner);
     event VaultUnfrozen(address indexed owner);
@@ -142,6 +184,14 @@ contract Heirloom is ReentrancyGuard {
     event ClaimCancelled(uint256 indexed claimId, address indexed owner);
     event ClaimFinalized(uint256 indexed claimId, address indexed by);
     event ShareReleased(uint256 indexed claimId, uint256 guardianIndex, address indexed guardian);
+
+    /// @param verifier_ The Anon Aadhaar verifier (address(0) disables the identity features).
+    /// @param nullifierSeed_ This app's nullifier seed. Must be a non-zero field element.
+    constructor(IAnonAadhaar verifier_, uint256 nullifierSeed_) {
+        if (nullifierSeed_ == 0 || nullifierSeed_ >= SNARK_FIELD) revert InvalidSeed();
+        verifier = verifier_;
+        nullifierSeed = nullifierSeed_;
+    }
 
     // ------------------------------------------------------------------ encryption keys
 
@@ -166,7 +216,7 @@ contract Heirloom is ReentrancyGuard {
 
     // ------------------------------------------------------------------ vault
 
-    function createVault(address[] calldata guardians, uint8 threshold, uint64 heartbeatInterval) external nonReentrant {
+    function createVault(address[] calldata guardians, uint8 threshold, uint64 heartbeatInterval, bool requireVerifiedGuardians) external nonReentrant {
         if (hasVault[msg.sender]) revert VaultExists();
         if (!hasEncryptionKey(msg.sender)) revert NoEncryptionKey(msg.sender);
         if (heartbeatInterval < MIN_PERIOD) revert PeriodTooShort();
@@ -176,17 +226,19 @@ contract Heirloom is ReentrancyGuard {
         v.lastHeartbeat = uint64(block.timestamp);
         hasVault[msg.sender] = true;
         _setGuardians(v, guardians, threshold);
-        emit VaultCreated(msg.sender, guardians, threshold, heartbeatInterval);
+        _applyGuardianPolicy(v, guardians, requireVerifiedGuardians);
+        emit VaultCreated(msg.sender, guardians, threshold, heartbeatInterval, requireVerifiedGuardians);
     }
 
     /// @notice Replaces the guardian set. Counts as an owner heartbeat (invalidating open claims), bumps the
     ///         epoch, and so blocks new claims on an asset until the owner re-shares it via updateAssetShares.
-    function rotateGuardians(address[] calldata guardians, uint8 threshold) external nonReentrant {
+    function rotateGuardians(address[] calldata guardians, uint8 threshold, bool requireVerifiedGuardians) external nonReentrant {
         Vault storage v = _ownerVault();
         _setGuardians(v, guardians, threshold);
+        _applyGuardianPolicy(v, guardians, requireVerifiedGuardians);
         v.epoch++;
         _beat(v);
-        emit GuardiansRotated(msg.sender, guardians, threshold, v.epoch);
+        emit GuardiansRotated(msg.sender, guardians, threshold, v.epoch, requireVerifiedGuardians);
     }
 
     function heartbeat() external nonReentrant {
@@ -226,6 +278,7 @@ contract Heirloom is ReentrancyGuard {
         if (bytes(storageId).length == 0 || contentHash == bytes32(0) || ownerWrappedKey.length == 0) revert EmptyField();
         _checkShares(v, encShares);
         _checkPolicy(v, policy);
+        _checkIdentityPolicy(beneficiary, policy);
 
         id = assets.length;
         Asset storage a = assets.push();
@@ -261,7 +314,7 @@ contract Heirloom is ReentrancyGuard {
 
     // ------------------------------------------------------------------ claims
 
-    function raiseClaim(uint256 assetId, EvidenceType evidenceType, bytes32 evidenceHash, string calldata evidenceStorageId)
+    function raiseClaim(uint256 assetId, EvidenceType evidenceType, bytes32 evidenceHash, string calldata evidenceStorageId, ZkProof calldata proof)
         external
         nonReentrant
         returns (uint256 claimId)
@@ -284,6 +337,9 @@ contract Heirloom is ReentrancyGuard {
             // A live raised claim (even a fraud-flagged one, until the owner cancels it) blocks a new one.
             if (prev.status == ClaimStatus.Raised && v.lastHeartbeat < prev.raisedAt) revert ClaimAlreadyActive();
         }
+
+        // A fresh proof by the beneficiary's registered identity, bound to the id this claim is about to get and to the caller.
+        if (a.policy.requireBeneficiaryZK) _requireBeneficiaryProof(proof, CLAIM_DOMAIN, claimCount + 1, a.beneficiary);
 
         claimId = ++claimCount;
         Claim storage c = claims[claimId];
@@ -346,7 +402,7 @@ contract Heirloom is ReentrancyGuard {
     }
 
     /// @notice Permissionless: finalizing only records that every condition already holds.
-    function finalizeClaim(uint256 claimId) external nonReentrant {
+    function finalizeClaim(uint256 claimId, ZkProof calldata proof) external nonReentrant {
         Claim storage c = _claim(claimId);
         Asset storage a = assets[c.assetId];
         Vault storage v = vaults[a.owner];
@@ -363,6 +419,12 @@ contract Heirloom is ReentrancyGuard {
         uint8 needed = pastDeadline ? v.threshold : a.policy.requiredApprovals;
         if (c.approvals < needed) revert NotEnoughApprovals();
 
+        if (a.policy.requireAge18) {
+            // Anyone may relay it, but the proof is the beneficiary's: right identity, this claim only, over 18 revealed.
+            _requireBeneficiaryProof(proof, AGE_DOMAIN, claimId, a.beneficiary);
+            if (proof.revealArray[0] != 1) revert AgeNotProven();
+        }
+
         c.status = ClaimStatus.Finalized;
         a.released = true;
         emit ClaimFinalized(claimId, msg.sender);
@@ -377,6 +439,84 @@ contract Heirloom is ReentrancyGuard {
         if (releasedShares[claimId][idx].length != 0) revert ShareAlreadyReleased();
         releasedShares[claimId][idx] = reEncryptedShare;
         emit ShareReleased(claimId, idx, msg.sender);
+    }
+
+    // ------------------------------------------------------------------ identity
+
+    /// @notice Registers the caller as a verified, unique person. One nullifier per address and one address per
+    ///         nullifier, so a person cannot hold two verified wallets. The signal binds the proof to msg.sender, so
+    ///         nobody can take a proof from the mempool and register it for themselves.
+    function verifyIdentity(ZkProof calldata proof) external nonReentrant {
+        if (address(verifier) == address(0)) revert IdentityDisabled();
+        if (nullifierOf[msg.sender] != 0) revert AlreadyVerified();
+        if (proof.nullifier == 0) revert InvalidProof();
+        if (nullifierOwner[proof.nullifier] != address(0)) revert NullifierAlreadyUsed();
+        _checkProof(proof, identitySignal(msg.sender));
+        nullifierOf[msg.sender] = proof.nullifier;
+        nullifierOwner[proof.nullifier] = msg.sender;
+        emit IdentityVerified(msg.sender, proof.nullifier);
+    }
+
+    function isVerified(address account) external view returns (bool) {
+        return nullifierOf[account] != 0;
+    }
+
+    /// @notice The signals a proof must have been generated with. The browser computes the same values.
+    function identitySignal(address who) public view returns (uint256) {
+        return _signal(IDENTITY_DOMAIN, 0, who);
+    }
+
+    function claimSignal(uint256 claimId, address who) public view returns (uint256) {
+        return _signal(CLAIM_DOMAIN, claimId, who);
+    }
+
+    function ageSignal(uint256 claimId, address who) public view returns (uint256) {
+        return _signal(AGE_DOMAIN, claimId, who);
+    }
+
+    function _signal(bytes32 domain, uint256 id, address who) private view returns (uint256) {
+        // Domain-separated, so a proof made for one purpose can never be replayed for another, nor on another chain
+        // or contract.
+        return uint256(keccak256(abi.encode(domain, block.chainid, address(this), id, who)));
+    }
+
+    function _checkProof(ZkProof calldata p, uint256 signal) private view {
+        if (address(verifier) == address(0)) revert IdentityDisabled();
+        // The verifier only checks the cryptography. Freshness is ours: proof of access to the QR within the last hours.
+        if (p.timestamp > block.timestamp || block.timestamp - p.timestamp > MAX_PROOF_AGE) revert StaleProof();
+        try verifier.verifyAnonAadhaarProof(nullifierSeed, p.nullifier, p.timestamp, signal, p.revealArray, p.groth16Proof) returns (bool ok) {
+            if (!ok) revert InvalidProof();
+        } catch {
+            revert InvalidProof();
+        }
+    }
+
+    /// @dev The proof must be by the beneficiary's registered identity and made for this claim and this use only.
+    function _requireBeneficiaryProof(ZkProof calldata p, bytes32 domain, uint256 claimId, address beneficiary) private view {
+        if (p.nullifier != nullifierOf[beneficiary] || p.nullifier == 0) revert NullifierMismatch();
+        _checkProof(p, _signal(domain, claimId, beneficiary));
+    }
+
+    function _applyGuardianPolicy(Vault storage v, address[] calldata guardians, bool requireVerified) private {
+        v.requireVerifiedGuardians = requireVerified;
+        if (!requireVerified) return;
+        if (address(verifier) == address(0)) revert IdentityDisabled();
+        uint256 n = guardians.length;
+        uint256[] memory seen = new uint256[](n);
+        for (uint256 i = 0; i < n; i++) {
+            uint256 id = nullifierOf[guardians[i]];
+            if (id == 0) revert GuardianNotVerified(guardians[i]);
+            // Distinct addresses already have distinct nullifiers, but state the rule where it matters.
+            for (uint256 j = 0; j < i; j++) if (seen[j] == id) revert GuardianNotVerified(guardians[i]);
+            seen[i] = id;
+        }
+    }
+
+    function _checkIdentityPolicy(address beneficiary, Policy calldata p) private view {
+        if (!p.requireBeneficiaryZK && !p.requireAge18) return;
+        if (address(verifier) == address(0)) revert IdentityDisabled();
+        // The proofs later have to match this nullifier, so it must exist now.
+        if (nullifierOf[beneficiary] == 0) revert BeneficiaryNotVerified(beneficiary);
     }
 
     // ------------------------------------------------------------------ views

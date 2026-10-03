@@ -10,6 +10,8 @@ import { shortAddr } from "@/lib/format";
 import { Btn, ListSkeleton } from "./ui";
 import { Wordmark } from "./Logo";
 import { KeyGate, useKey } from "./KeyProvider";
+import { IdentityGate } from "./IdentityCard";
+import { DeploymentGuard } from "./DeploymentGuard";
 import { SessionGate } from "./Session";
 import { NAVIGATE_EVENT, NotificationBell } from "./NotificationBell";
 import OwnerView from "./OwnerView";
@@ -128,9 +130,13 @@ function Gate({ children, prefillEmail }: { children: ReactNode; prefillEmail?: 
   }
 
   return (
-    <SessionGate prefillEmail={prefillEmail}>
-      <KeyGate>{children}</KeyGate>
-    </SessionGate>
+    <DeploymentGuard>
+      <SessionGate prefillEmail={prefillEmail}>
+        <KeyGate>
+          <IdentityGate>{children}</IdentityGate>
+        </KeyGate>
+      </SessionGate>
+    </DeploymentGuard>
   );
 }
 

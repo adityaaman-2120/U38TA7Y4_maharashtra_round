@@ -6,6 +6,7 @@ type Tone = "good" | "bad" | "warn" | "info";
 
 export const EVENT_LABELS: Record<string, { label: string; tone: Tone }> = {
   EncryptionKeyRegistered: { label: "Key registered", tone: "info" },
+  IdentityVerified: { label: "Identity verified", tone: "good" },
   VaultCreated: { label: "Vault created", tone: "good" },
   GuardiansRotated: { label: "Guardians rotated", tone: "warn" },
   Heartbeat: { label: "Owner check-in", tone: "good" },
@@ -59,6 +60,7 @@ export function summarize(e: HeirloomEvent, me?: string, fmt: Formatters = SHORT
     return me && s.toLowerCase() === me.toLowerCase() ? "you" : fmt.addr(s);
   };
   switch (e.eventName) {
+    case "IdentityVerified": return `${who(a.account)} verified an identity with a zero-knowledge proof (pseudonym ${fmt.hash(String('0x' + BigInt(String(a.nullifier)).toString(16)), 4)})`;
     case "EncryptionKeyRegistered": return `${who(a.account)} registered an encryption key`;
     case "VaultCreated": return `${who(a.owner)} created a vault with ${(a.guardians as unknown[]).length} guardians (threshold ${a.threshold}, check-in every ${Math.round(Number(a.heartbeatInterval) / 60)} min)`;
     case "GuardiansRotated": return `${who(a.owner)} replaced the guardians (${(a.guardians as unknown[]).length} guardians, threshold ${a.threshold}); files must be re-shared`;

@@ -2,15 +2,21 @@
   "name": "heirloom",
   "private": true,
   "scripts": {
-    "dev": "concurrently --kill-others-on-fail -n node,deploy,web \"npm --prefix contracts run node\" \"wait-on tcp:8545 && npm --prefix contracts run deploy:localhost\" \"npm --prefix web run dev\"",
+    "dev": "node scripts/dev-preflight.js && cross-env HARDHAT_HOST=0.0.0.0 npm run dev:run",
     "install:all": "npm i && npm --prefix contracts i && npm --prefix web i",
     "test": "npm --prefix contracts test",
     "backend:up": "docker compose -f backend/docker-compose.yml up -d --build",
     "backend:down": "docker compose -f backend/docker-compose.yml down",
-    "backend:test": "docker compose -f backend/docker-compose.yml run --rm -v ./backend/tests:/app/tests web python manage.py test tests"
+    "backend:test": "docker compose -f backend/docker-compose.yml run --rm -v ./backend/tests:/app/tests web python manage.py test tests",
+    "dev:run": "concurrently --kill-others-on-fail -n node,deploy,web \"npm --prefix contracts run node\" \"wait-on tcp:8545 && npm --prefix contracts run deploy:localhost\" \"npm --prefix web run dev\"",
+    "dev:clean": "node scripts/free-ports.js && npm run dev",
+    "dev:mock": "node scripts/dev-preflight.js && cross-env HARDHAT_HOST=0.0.0.0 ANON_AADHAAR_VERIFIER=mock NEXT_PUBLIC_ZK_PROVER=mock npm run dev:run",
+    "dev:mock:clean": "node scripts/free-ports.js && npm run dev:mock",
+    "ports:free": "node scripts/free-ports.js"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",
+    "cross-env": "^10.1.0",
     "wait-on": "^9.5.1"
   }
 }

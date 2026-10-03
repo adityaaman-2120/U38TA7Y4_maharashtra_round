@@ -124,19 +124,37 @@ class RealAbiDecodingTests(TestCase):
 
         client = Web3Client(replace(CFG, rpc_url="http://127.0.0.1:1"))
         names = {e["name"] for e in client.by_topic.values()}
-        self.assertEqual(len(names), 16)
-        self.assertTrue({"VaultCreated", "ClaimRaised", "Attested", "ShareReleased", "FraudFlagged", "PanicFrozen"} <= names)
+        self.assertEqual(len(names), 17)
+        self.assertTrue({"VaultCreated", "ClaimRaised", "Attested", "ShareReleased", "FraudFlagged", "PanicFrozen", "IdentityVerified"} <= names)
 
         owner, guardians = addr(), [addr() for _ in range(3)]
         topic = next(t for t, e in client.by_topic.items() if e["name"] == "VaultCreated")
         log = {
             "topics": [HexBytes(topic), HexBytes("0x" + "00" * 12 + owner[2:])],
-            "data": HexBytes(encode(["address[]", "uint8", "uint64"], [guardians, 2, 600])),
+            "data": HexBytes(encode(["address[]", "uint8", "uint64", "bool"], [guardians, 2, 600, True])),
             "address": client.address, "blockNumber": 5, "blockHash": HexBytes(b"\x01" * 32),
             "transactionHash": HexBytes(b"\x02" * 32), "logIndex": 3, "transactionIndex": 0, "removed": False,
         }
         with mock.patch.object(client.w3.eth, "get_logs", return_value=[log]):
             (ev,) = client.events(5, 5)
         self.assertEqual((ev.name, ev.block_number, ev.log_index), ("VaultCreated", 5, 3))
-        self.assertEqual(ev.args, {"owner": owner, "guardians": guardians, "threshold": 2, "heartbeatInterval": 600})
+        self.assertEqual(ev.args, {"owner": owner, "guardians": guardians, "threshold": 2, "heartbeatInterval": 600, "requireVerifiedGuardians": True})
         self.assertEqual(ev.tx_hash, "0x" + "02" * 32)
+
+
+class PolicyParsingTests(TestCase):
+    def test_reads_every_policy_field_named_in_the_shipped_abi(self):
+        from indexer.chains import load_abi
+        from indexer.client import _policy_from_asset
+
+        abi = load_abi()
+        fn = next(e for e in abi if e.get("type") == "function" and e["name"] == "getAsset")
+        fields = fn["outputs"][0]["components"]
+        policy_fields = next(c for c in fields if c["name"] == "policy")["components"]
+        values = tuple(range(1, len(policy_fields) + 1))
+        asset = tuple(values if c["name"] == "policy" else 0 for c in fields)  # web3 returns the struct as a tuple
+        parsed = _policy_from_asset(abi, asset)
+        self.assertEqual(list(parsed), [c["name"] for c in policy_fields])
+        for needed in ("attestationDeadline", "challengePeriod", "requiredApprovals", "requireBeneficiaryZK", "requireAge18"):
+            self.assertIn(needed, parsed)
+        self.assertEqual(list(parsed.values()), list(values))

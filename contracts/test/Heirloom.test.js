@@ -10,6 +10,9 @@ const randomPub = () => "0x04" + ethers.hexlify(ethers.randomBytes(64)).slice(2)
 const shares = (n) => Array.from({ length: n }, (_, i) => "0x" + (i + 1).toString(16).padStart(2, "0").repeat(24));
 const WRAPPED = "0x" + "ee".repeat(40);
 const EVIDENCE = ethers.id("evidence");
+// An unused proof, for flows that do not require identity.
+const EMPTY = { nullifier: 0, timestamp: 0, revealArray: [0, 0, 0, 0], groth16Proof: [0, 0, 0, 0, 0, 0, 0, 0] };
+const SEED = 1234567890123456789012345678901234567890n;
 const policy = (o = {}) => ({
   requiredApprovals: 2,
   challengePeriod: 600,
@@ -17,21 +20,24 @@ const policy = (o = {}) => ({
   unlockAfter: 0,
   evidenceType: EV.Any,
   attestationDeadline: DAY,
+  requireBeneficiaryZK: false,
+  requireAge18: false,
   ...o,
 });
 
 async function deployFixture() {
   const [owner, g1, g2, g3, g4, g5, ben, stranger, noKey] = await ethers.getSigners();
-  const h = await (await ethers.getContractFactory("Heirloom")).deploy();
+  const mock = await (await ethers.getContractFactory("MockAnonAadhaar")).deploy();
+  const h = await (await ethers.getContractFactory("Heirloom")).deploy(await mock.getAddress(), SEED);
   for (const s of [owner, g1, g2, g3, g4, g5, ben]) await h.connect(s).registerEncryptionKey(randomPub());
-  return { h, owner, g1, g2, g3, g4, g5, ben, stranger, noKey };
+  return { h, mock, owner, g1, g2, g3, g4, g5, ben, stranger, noKey };
 }
 
 /** Vault with g1..g3 (threshold 2, heartbeat every 10 min) and one asset (id 0) for `ben`. */
 async function assetFixture() {
   const ctx = await deployFixture();
   const { h, owner, g1, g2, g3, ben } = ctx;
-  await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+  await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
   await h.connect(owner).addAsset(ben.address, "cid-1", ethers.id("plain"), shares(3), WRAPPED, policy());
   return ctx;
 }
@@ -39,7 +45,7 @@ async function assetFixture() {
 /** Waits out the inactivity requirement and raises claim #1 as the beneficiary. */
 async function raised(ctx, type = EV.Death) {
   await time.increase(601);
-  await ctx.h.connect(ctx.ben).raiseClaim(0, type, EVIDENCE, "ev-cid");
+  await ctx.h.connect(ctx.ben).raiseClaim(0, type, EVIDENCE, "ev-cid", EMPTY);
   return 1;
 }
 
@@ -75,7 +81,7 @@ describe("Heirloom", () => {
     it("creates a vault with 3–7 registered guardians", async () => {
       const { h, owner, g1, g2, g3, g4, g5 } = await loadFixture(deployFixture);
       const gs = [g1, g2, g3, g4, g5].map((g) => g.address);
-      await expect(h.connect(owner).createVault(gs, 3, 900)).to.emit(h, "VaultCreated").withArgs(owner.address, gs, 3, 900);
+      await expect(h.connect(owner).createVault(gs, 3, 900, false)).to.emit(h, "VaultCreated").withArgs(owner.address, gs, 3, 900, false);
       const v = await h.getVault(owner.address);
       expect(v.owner).to.equal(owner.address);
       expect([...v.guardians]).to.deep.equal(gs);
@@ -88,20 +94,20 @@ describe("Heirloom", () => {
     it("validates guardians, threshold, interval and keys", async () => {
       const { h, owner, g1, g2, g3, g4, g5, stranger } = await loadFixture(deployFixture);
       const a = (...s) => s.map((x) => x.address);
-      await expect(h.connect(owner).createVault(a(g1, g2), 2, 600)).to.be.revertedWithCustomError(h, "InvalidGuardians");
+      await expect(h.connect(owner).createVault(a(g1, g2), 2, 600, false)).to.be.revertedWithCustomError(h, "InvalidGuardians");
       const eight = [g1, g2, g3, g4, g5, stranger, owner, owner].map((x) => x.address);
-      await expect(h.connect(owner).createVault(eight, 2, 600)).to.be.revertedWithCustomError(h, "InvalidGuardians");
-      await expect(h.connect(owner).createVault(a(g1, g2, g2), 2, 600)).to.be.revertedWithCustomError(h, "InvalidGuardians");
-      await expect(h.connect(owner).createVault(a(g1, g2, owner), 2, 600)).to.be.revertedWithCustomError(h, "InvalidGuardians");
-      await expect(h.connect(owner).createVault([g1.address, g2.address, ethers.ZeroAddress], 2, 600)).to.be.revertedWithCustomError(h, "InvalidGuardians");
-      await expect(h.connect(owner).createVault(a(g1, g2, stranger), 2, 600))
+      await expect(h.connect(owner).createVault(eight, 2, 600, false)).to.be.revertedWithCustomError(h, "InvalidGuardians");
+      await expect(h.connect(owner).createVault(a(g1, g2, g2), 2, 600, false)).to.be.revertedWithCustomError(h, "InvalidGuardians");
+      await expect(h.connect(owner).createVault(a(g1, g2, owner), 2, 600, false)).to.be.revertedWithCustomError(h, "InvalidGuardians");
+      await expect(h.connect(owner).createVault([g1.address, g2.address, ethers.ZeroAddress], 2, 600, false)).to.be.revertedWithCustomError(h, "InvalidGuardians");
+      await expect(h.connect(owner).createVault(a(g1, g2, stranger), 2, 600, false))
         .to.be.revertedWithCustomError(h, "NoEncryptionKey").withArgs(stranger.address);
-      await expect(h.connect(owner).createVault(a(g1, g2, g3), 1, 600)).to.be.revertedWithCustomError(h, "InvalidThreshold");
-      await expect(h.connect(owner).createVault(a(g1, g2, g3), 4, 600)).to.be.revertedWithCustomError(h, "InvalidThreshold");
-      await expect(h.connect(owner).createVault(a(g1, g2, g3), 2, MIN - 1)).to.be.revertedWithCustomError(h, "PeriodTooShort");
-      await expect(h.connect(stranger).createVault(a(g1, g2, g3), 2, 600)).to.be.revertedWithCustomError(h, "NoEncryptionKey");
-      await h.connect(owner).createVault(a(g1, g2, g3), 2, MIN);
-      await expect(h.connect(owner).createVault(a(g1, g2, g3), 2, 600)).to.be.revertedWithCustomError(h, "VaultExists");
+      await expect(h.connect(owner).createVault(a(g1, g2, g3), 1, 600, false)).to.be.revertedWithCustomError(h, "InvalidThreshold");
+      await expect(h.connect(owner).createVault(a(g1, g2, g3), 4, 600, false)).to.be.revertedWithCustomError(h, "InvalidThreshold");
+      await expect(h.connect(owner).createVault(a(g1, g2, g3), 2, MIN - 1, false)).to.be.revertedWithCustomError(h, "PeriodTooShort");
+      await expect(h.connect(stranger).createVault(a(g1, g2, g3), 2, 600, false)).to.be.revertedWithCustomError(h, "NoEncryptionKey");
+      await h.connect(owner).createVault(a(g1, g2, g3), 2, MIN, false);
+      await expect(h.connect(owner).createVault(a(g1, g2, g3), 2, 600, false)).to.be.revertedWithCustomError(h, "VaultExists");
     });
 
     it("heartbeat updates lastHeartbeat and emits", async () => {
@@ -144,7 +150,7 @@ describe("Heirloom", () => {
 
     it("emits AssetAdded", async () => {
       const { h, owner, g1, g2, g3, ben } = await loadFixture(deployFixture);
-      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
       await expect(h.connect(owner).addAsset(ben.address, "cid", ethers.id("x"), shares(3), WRAPPED, policy()))
         .to.emit(h, "AssetAdded").withArgs(0, owner.address, ben.address, "cid", ethers.id("x"));
     });
@@ -156,7 +162,7 @@ describe("Heirloom", () => {
         return h.connect(o.from ?? owner).addAsset(p.b, p.sid, p.ch, p.sh, p.w, p.pol);
       };
       await expect(add()).to.be.revertedWithCustomError(h, "NoVault");
-      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
       await expect(add({ b: ethers.ZeroAddress })).to.be.revertedWithCustomError(h, "InvalidBeneficiary");
       await expect(add({ b: owner.address })).to.be.revertedWithCustomError(h, "InvalidBeneficiary");
       await expect(add({ b: noKey.address })).to.be.revertedWithCustomError(h, "NoEncryptionKey");
@@ -181,7 +187,7 @@ describe("Heirloom", () => {
       const ctx = await loadFixture(assetFixture);
       const { h, g1, g2, ben } = ctx;
       await time.increase(601);
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "ev-cid"))
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "ev-cid", EMPTY))
         .to.emit(h, "ClaimRaised").withArgs(1, 0, ben.address, EV.Death, EVIDENCE, "ev-cid");
       let c = await h.getClaim(1);
       expect(c.status).to.equal(ST.Raised);
@@ -191,11 +197,11 @@ describe("Heirloom", () => {
       expect((await h.getAsset(0)).activeClaim).to.equal(1);
 
       await expect(h.connect(g1).attest(1)).to.emit(h, "Attested").withArgs(1, g1.address, 1);
-      await expect(h.connect(ben).finalizeClaim(1)).to.be.revertedWithCustomError(h, "ChallengePeriodNotOver");
+      await expect(h.connect(ben).finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "ChallengePeriodNotOver");
       await h.connect(g2).attest(1);
-      await expect(h.connect(ben).finalizeClaim(1)).to.be.revertedWithCustomError(h, "ChallengePeriodNotOver");
+      await expect(h.connect(ben).finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "ChallengePeriodNotOver");
       await time.increase(601);
-      await expect(h.connect(ben).finalizeClaim(1)).to.emit(h, "ClaimFinalized").withArgs(1, ben.address);
+      await expect(h.connect(ben).finalizeClaim(1, EMPTY)).to.emit(h, "ClaimFinalized").withArgs(1, ben.address);
       c = await h.getClaim(1);
       expect(c.status).to.equal(ST.Finalized);
       expect(c.approvals).to.equal(2);
@@ -204,46 +210,46 @@ describe("Heirloom", () => {
       await expect(h.connect(g1).submitShare(1, "0xaa01")).to.emit(h, "ShareReleased").withArgs(1, 0, g1.address);
       await h.connect(g2).submitShare(1, "0xbb02");
       expect([...(await h.getReleasedShares(1))]).to.deep.equal(["0xaa01", "0xbb02", "0x"]);
-      await expect(h.connect(ctx.ben).raiseClaim(0, EV.Death, EVIDENCE, "x")).to.be.revertedWithCustomError(h, "AssetAlreadyReleased");
+      await expect(h.connect(ctx.ben).raiseClaim(0, EV.Death, EVIDENCE, "x", EMPTY)).to.be.revertedWithCustomError(h, "AssetAlreadyReleased");
     });
 
     it("raiseClaim: only beneficiary, after inactivity, matching evidence", async () => {
       const { h, owner, g1, ben, stranger } = await loadFixture(assetFixture);
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "NotInactiveLongEnough");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "NotInactiveLongEnough");
       await time.increase(601);
-      await expect(h.connect(stranger).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "NotBeneficiary");
-      await expect(h.connect(owner).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "NotBeneficiary");
-      await expect(h.connect(g1).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "NotBeneficiary");
-      await expect(h.connect(ben).raiseClaim(9, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "NoSuchAsset");
-      await expect(h.connect(ben).raiseClaim(0, EV.Any, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "EvidenceTypeMismatch");
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, ethers.ZeroHash, "e")).to.be.revertedWithCustomError(h, "EmptyField");
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "")).to.be.revertedWithCustomError(h, "EmptyField");
+      await expect(h.connect(stranger).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "NotBeneficiary");
+      await expect(h.connect(owner).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "NotBeneficiary");
+      await expect(h.connect(g1).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "NotBeneficiary");
+      await expect(h.connect(ben).raiseClaim(9, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "NoSuchAsset");
+      await expect(h.connect(ben).raiseClaim(0, EV.Any, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "EvidenceTypeMismatch");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, ethers.ZeroHash, "e", EMPTY)).to.be.revertedWithCustomError(h, "EmptyField");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "", EMPTY)).to.be.revertedWithCustomError(h, "EmptyField");
     });
 
     it("enforces the asset's evidence type", async () => {
       const ctx = await loadFixture(deployFixture);
       const { h, owner, g1, g2, g3, ben } = ctx;
-      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
       await h.connect(owner).addAsset(ben.address, "cid", ethers.id("x"), shares(3), WRAPPED, policy({ evidenceType: EV.Death }));
       await time.increase(601);
-      await expect(h.connect(ben).raiseClaim(0, EV.Incapacity, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "EvidenceTypeMismatch");
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.not.be.reverted;
+      await expect(h.connect(ben).raiseClaim(0, EV.Incapacity, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "EvidenceTypeMismatch");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.not.be.reverted;
     });
 
     it("inactivity requirement is the larger of policy minInactivity and heartbeatInterval", async () => {
       const { h, owner, g1, g2, g3, ben } = await loadFixture(deployFixture);
-      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 3600);
+      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 3600, false);
       await h.connect(owner).addAsset(ben.address, "cid", ethers.id("x"), shares(3), WRAPPED, policy({ minInactivity: 600 }));
       await time.increase(1000);
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "NotInactiveLongEnough");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "NotInactiveLongEnough");
       await time.increase(2700);
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.not.be.reverted;
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.not.be.reverted;
     });
 
     it("blocks a second live claim on the same asset", async () => {
       const ctx = await loadFixture(assetFixture);
       await raised(ctx);
-      await expect(ctx.h.connect(ctx.ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(ctx.h, "ClaimAlreadyActive");
+      await expect(ctx.h.connect(ctx.ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(ctx.h, "ClaimAlreadyActive");
     });
 
     it("attest: guardians only, once, with unknown claims rejected", async () => {
@@ -263,14 +269,14 @@ describe("Heirloom", () => {
       await raised(ctx);
       await ctx.h.connect(ctx.g1).attest(1);
       await time.increase(601);
-      await expect(ctx.h.finalizeClaim(1)).to.be.revertedWithCustomError(ctx.h, "NotEnoughApprovals");
+      await expect(ctx.h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(ctx.h, "NotEnoughApprovals");
     });
 
     it("finalize is permissionless but only once", async () => {
       const ctx = await loadFixture(assetFixture);
       const id = await finalizable(ctx);
-      await expect(ctx.h.connect(ctx.stranger).finalizeClaim(id)).to.emit(ctx.h, "ClaimFinalized");
-      await expect(ctx.h.finalizeClaim(id)).to.be.revertedWithCustomError(ctx.h, "ClaimNotRaised");
+      await expect(ctx.h.connect(ctx.stranger).finalizeClaim(id, EMPTY)).to.emit(ctx.h, "ClaimFinalized");
+      await expect(ctx.h.finalizeClaim(id, EMPTY)).to.be.revertedWithCustomError(ctx.h, "ClaimNotRaised");
     });
   });
 
@@ -284,9 +290,9 @@ describe("Heirloom", () => {
       expect((await h.getClaim(1)).status).to.equal(ST.Cancelled);
       await expect(h.connect(ctx.g2).attest(1)).to.be.revertedWithCustomError(h, "ClaimNotRaised");
       await time.increase(601);
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "ClaimNotRaised");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "ClaimNotRaised");
       await expect(h.connect(owner).cancelClaim(1)).to.be.revertedWithCustomError(h, "ClaimNotRaised");
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e2")).to.emit(h, "ClaimRaised");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e2", EMPTY)).to.emit(h, "ClaimRaised");
     });
   });
 
@@ -301,13 +307,13 @@ describe("Heirloom", () => {
       expect(await h.isClaimInvalidated(1)).to.equal(false);
       await h.connect(owner).heartbeat();
       expect(await h.isClaimInvalidated(1)).to.equal(true);
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
       await expect(h.connect(g3).attest(1)).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
       await expect(h.connect(g3).reject(1, ethers.id("r"))).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
       await expect(h.connect(g3).flagFraud(1)).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "NotInactiveLongEnough");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "NotInactiveLongEnough");
       await time.increase(601);
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.emit(h, "ClaimRaised"); // replaces the stale claim
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.emit(h, "ClaimRaised"); // replaces the stale claim
     });
   });
 
@@ -324,11 +330,11 @@ describe("Heirloom", () => {
       expect((await h.getResponse(1, g3.address)).flaggedFraud).to.equal(true);
       await expect(h.connect(g3).flagFraud(1)).to.be.revertedWithCustomError(h, "AlreadyFlagged");
       await time.increase(DAY + 1); // even after every deadline
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "ClaimFlaggedFraud");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "ClaimFlaggedFraud");
       await expect(h.connect(g3).attest(1)).to.be.revertedWithCustomError(h, "ClaimFlaggedFraud");
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "ClaimAlreadyActive");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "ClaimAlreadyActive");
       await h.connect(owner).cancelClaim(1);
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.emit(h, "ClaimRaised");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.emit(h, "ClaimRaised");
     });
 
     it("an attesting guardian may still flag fraud afterwards", async () => {
@@ -345,37 +351,37 @@ describe("Heirloom", () => {
       const { h, owner, g1, g2, g3, ben } = ctx;
       await time.increase(601);
       await h.connect(owner).panicFreeze();
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "VaultFrozen");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "VaultFrozen");
       await h.connect(owner).unfreeze();
       await time.increase(601);
-      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e");
+      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY);
       await h.connect(g1).attest(1);
       await h.connect(g2).attest(1);
       await time.increase(601);
       await h.connect(owner).panicFreeze();
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "VaultFrozen");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "VaultFrozen");
       await expect(h.connect(g3).attest(1)).to.be.revertedWithCustomError(h, "VaultFrozen");
       await expect(h.connect(g3).reject(1, ethers.id("r"))).to.not.be.reverted; // conservative actions stay open
       await h.connect(owner).unfreeze();
       expect(await h.isClaimInvalidated(1)).to.equal(true);
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
     });
   });
 
   describe("unlockAfter", () => {
     it("blocks finalize until the time lock passes", async () => {
       const { h, owner, g1, g2, g3, ben } = await loadFixture(deployFixture);
-      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
       const unlock = (await time.latest()) + 5 * DAY;
       await h.connect(owner).addAsset(ben.address, "cid", ethers.id("x"), shares(3), WRAPPED, policy({ unlockAfter: unlock }));
       await time.increase(601);
-      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e");
+      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY);
       await h.connect(g1).attest(1);
       await h.connect(g2).attest(1);
       await time.increase(601);
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "NotYetUnlocked");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "NotYetUnlocked");
       await time.increaseTo(unlock);
-      await expect(h.finalizeClaim(1)).to.emit(h, "ClaimFinalized");
+      await expect(h.finalizeClaim(1, EMPTY)).to.emit(h, "ClaimFinalized");
     });
   });
 
@@ -391,8 +397,8 @@ describe("Heirloom", () => {
       expect((await h.getClaim(1)).status).to.equal(ST.Rejected);
       await expect(h.connect(g3).attest(1)).to.be.revertedWithCustomError(h, "ClaimNotRaised");
       await time.increase(DAY + 1);
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "ClaimNotRaised");
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e2")).to.emit(h, "ClaimRaised");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "ClaimNotRaised");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e2", EMPTY)).to.emit(h, "ClaimRaised");
     });
 
     it("one rejection plus one approval still cannot finalize before the deadline", async () => {
@@ -401,34 +407,34 @@ describe("Heirloom", () => {
       await ctx.h.connect(ctx.g1).reject(1, ethers.id("r"));
       await ctx.h.connect(ctx.g2).attest(1);
       await time.increase(601);
-      await expect(ctx.h.finalizeClaim(1)).to.be.revertedWithCustomError(ctx.h, "NotEnoughApprovals");
+      await expect(ctx.h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(ctx.h, "NotEnoughApprovals");
     });
   });
 
   describe("unresponsive guardian", () => {
     it("after attestationDeadline the threshold is enough", async () => {
       const { h, owner, g1, g2, g3, ben } = await loadFixture(deployFixture);
-      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
       await h.connect(owner).addAsset(ben.address, "cid", ethers.id("x"), shares(3), WRAPPED, policy({ requiredApprovals: 3, attestationDeadline: 3600 }));
       await time.increase(601);
-      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e");
+      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY);
       await h.connect(g1).attest(1);
       await h.connect(g2).attest(1); // g3 never answers
       await time.increase(700);
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "NotEnoughApprovals");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "NotEnoughApprovals");
       await time.increase(3600);
-      await expect(h.finalizeClaim(1)).to.emit(h, "ClaimFinalized");
+      await expect(h.finalizeClaim(1, EMPTY)).to.emit(h, "ClaimFinalized");
     });
 
     it("does not relax below the threshold", async () => {
       const { h, owner, g1, g2, g3, ben } = await loadFixture(deployFixture);
-      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+      await h.connect(owner).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
       await h.connect(owner).addAsset(ben.address, "cid", ethers.id("x"), shares(3), WRAPPED, policy({ requiredApprovals: 3, attestationDeadline: 3600 }));
       await time.increase(601);
-      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e");
+      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY);
       await h.connect(g1).attest(1);
       await time.increase(4000);
-      await expect(h.finalizeClaim(1)).to.be.revertedWithCustomError(h, "NotEnoughApprovals");
+      await expect(h.finalizeClaim(1, EMPTY)).to.be.revertedWithCustomError(h, "NotEnoughApprovals");
     });
   });
 
@@ -441,7 +447,7 @@ describe("Heirloom", () => {
       await h.connect(g1).attest(1);
       await h.connect(ctx.g2).attest(1);
       await time.increase(601);
-      await h.finalizeClaim(1);
+      await h.finalizeClaim(1, EMPTY);
       for (const s of [stranger, ben, owner, g4]) await expect(h.connect(s).submitShare(1, "0x01")).to.be.revertedWithCustomError(h, "NotGuardian");
       await expect(h.connect(g1).submitShare(1, "0x")).to.be.revertedWithCustomError(h, "EmptyField");
       await h.connect(g1).submitShare(1, "0x01");
@@ -457,19 +463,19 @@ describe("Heirloom", () => {
       const { h, owner, g1, g2, g3, g4, g5, ben } = ctx;
       await raised(ctx);
       const next = [g3, g4, g5].map((g) => g.address);
-      await expect(h.connect(owner).rotateGuardians(next, 2))
-        .to.emit(h, "GuardiansRotated").withArgs(owner.address, next, 2, 1).and.to.emit(h, "Heartbeat");
+      await expect(h.connect(owner).rotateGuardians(next, 2, false))
+        .to.emit(h, "GuardiansRotated").withArgs(owner.address, next, 2, 1, false).and.to.emit(h, "Heartbeat");
       expect((await h.getVault(owner.address)).epoch).to.equal(1);
       expect(await h.isClaimInvalidated(1)).to.equal(true);
       await expect(h.connect(g1).attest(1)).to.be.revertedWithCustomError(h, "ClaimInvalidatedByHeartbeat");
 
       await time.increase(601);
-      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e")).to.be.revertedWithCustomError(h, "AssetSharesStale");
+      await expect(h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY)).to.be.revertedWithCustomError(h, "AssetSharesStale");
       await expect(h.connect(owner).updateAssetShares(0, shares(2), WRAPPED)).to.be.revertedWithCustomError(h, "InvalidShares");
       await expect(h.connect(owner).updateAssetShares(0, shares(3), "0x")).to.be.revertedWithCustomError(h, "EmptyField");
       await expect(h.connect(owner).updateAssetShares(0, shares(3), WRAPPED)).to.emit(h, "AssetSharesUpdated").withArgs(0, owner.address, 1);
       await time.increase(601);
-      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e");
+      await h.connect(ben).raiseClaim(0, EV.Death, EVIDENCE, "e", EMPTY);
       // the new claim uses the new guardians; the removed ones have no say
       await expect(h.connect(g1).attest(2)).to.be.revertedWithCustomError(h, "NotGuardian");
       await expect(h.connect(g2).attest(2)).to.be.revertedWithCustomError(h, "NotGuardian");
@@ -480,14 +486,14 @@ describe("Heirloom", () => {
 
     it("rotation validates the new set", async () => {
       const { h, owner, g1, g2, stranger } = await loadFixture(assetFixture);
-      await expect(h.connect(owner).rotateGuardians([g1.address, g2.address], 2)).to.be.revertedWithCustomError(h, "InvalidGuardians");
-      await expect(h.connect(owner).rotateGuardians([g1.address, g2.address, stranger.address], 2)).to.be.revertedWithCustomError(h, "NoEncryptionKey");
+      await expect(h.connect(owner).rotateGuardians([g1.address, g2.address], 2, false)).to.be.revertedWithCustomError(h, "InvalidGuardians");
+      await expect(h.connect(owner).rotateGuardians([g1.address, g2.address, stranger.address], 2, false)).to.be.revertedWithCustomError(h, "NoEncryptionKey");
     });
 
     it("updateAssetShares is not allowed after release", async () => {
       const ctx = await loadFixture(assetFixture);
       const id = await finalizable(ctx);
-      await ctx.h.finalizeClaim(id);
+      await ctx.h.finalizeClaim(id, EMPTY);
       await expect(ctx.h.connect(ctx.owner).updateAssetShares(0, shares(3), WRAPPED)).to.be.revertedWithCustomError(ctx.h, "AssetAlreadyReleased");
     });
   });
@@ -518,7 +524,7 @@ describe("Heirloom", () => {
         await expect(c.heartbeat()).to.be.revertedWithCustomError(h, "NoVault");
         await expect(c.panicFreeze()).to.be.revertedWithCustomError(h, "NoVault");
         await expect(c.unfreeze()).to.be.revertedWithCustomError(h, "NoVault");
-        await expect(c.rotateGuardians(gs, 2)).to.be.revertedWithCustomError(h, "NoVault");
+        await expect(c.rotateGuardians(gs, 2, false)).to.be.revertedWithCustomError(h, "NoVault");
         await expect(c.addAsset(ben.address, "c", ethers.id("x"), shares(3), WRAPPED, policy())).to.be.revertedWithCustomError(h, "NoVault");
         await expect(c.updateAssetShares(0, shares(3), WRAPPED)).to.be.revertedWithCustomError(h, "NoVault");
       }
@@ -529,7 +535,7 @@ describe("Heirloom", () => {
       const { h, g4, g1, g2, g3 } = ctx;
       await h.connect(g4).registerEncryptionKey(randomPub());
       await h.connect(ctx.g5).registerEncryptionKey(randomPub());
-      await h.connect(g4).createVault([g1, g2, g3].map((g) => g.address), 2, 600);
+      await h.connect(g4).createVault([g1, g2, g3].map((g) => g.address), 2, 600, false);
       await expect(h.connect(g4).updateAssetShares(0, shares(3), WRAPPED)).to.be.revertedWithCustomError(h, "NotOwner");
       await raised(ctx);
       await expect(h.connect(g4).cancelClaim(1)).to.be.revertedWithCustomError(h, "NotOwner");

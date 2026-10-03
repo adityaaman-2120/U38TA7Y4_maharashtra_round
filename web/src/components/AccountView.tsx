@@ -8,11 +8,13 @@ import { shortHash } from "@/lib/format";
 import { Btn, Card, Input, Label, Mono } from "./ui";
 import { useKey } from "./KeyProvider";
 import { useMe, useSessionKey } from "./Session";
+import { IdentityCard } from "./IdentityCard";
 
 export default function AccountView() {
   return (
     <div className="space-y-4">
       <ProfileCard />
+      <IdentityCard />
       <KeyCard />
       <PasswordCard />
     </div>

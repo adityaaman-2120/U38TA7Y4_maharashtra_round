@@ -1,5 +1,25 @@
 [
  {
+  "type": "constructor",
+  "stateMutability": "undefined",
+  "payable": false,
+  "inputs": [
+   {
+    "type": "address",
+    "name": "verifier_"
+   },
+   {
+    "type": "uint256",
+    "name": "nullifierSeed_"
+   }
+  ]
+ },
+ {
+  "type": "error",
+  "name": "AgeNotProven",
+  "inputs": []
+ },
+ {
   "type": "error",
   "name": "AlreadyFlagged",
   "inputs": []
@@ -11,6 +31,11 @@
  },
  {
   "type": "error",
+  "name": "AlreadyVerified",
+  "inputs": []
+ },
+ {
+  "type": "error",
   "name": "AssetAlreadyReleased",
   "inputs": []
  },
@@ -18,6 +43,16 @@
   "type": "error",
   "name": "AssetSharesStale",
   "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "BeneficiaryNotVerified",
+  "inputs": [
+   {
+    "type": "address",
+    "name": "beneficiary"
+   }
+  ]
  },
  {
   "type": "error",
@@ -61,6 +96,21 @@
  },
  {
   "type": "error",
+  "name": "GuardianNotVerified",
+  "inputs": [
+   {
+    "type": "address",
+    "name": "guardian"
+   }
+  ]
+ },
+ {
+  "type": "error",
+  "name": "IdentityDisabled",
+  "inputs": []
+ },
+ {
+  "type": "error",
   "name": "InvalidBeneficiary",
   "inputs": []
  },
@@ -77,6 +127,16 @@
  {
   "type": "error",
   "name": "InvalidPolicy",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "InvalidProof",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "InvalidSeed",
   "inputs": []
  },
  {
@@ -146,6 +206,16 @@
  },
  {
   "type": "error",
+  "name": "NullifierAlreadyUsed",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "NullifierMismatch",
+  "inputs": []
+ },
+ {
+  "type": "error",
   "name": "PeriodTooShort",
   "inputs": []
  },
@@ -157,6 +227,11 @@
  {
   "type": "error",
   "name": "ShareAlreadyReleased",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "StaleProof",
   "inputs": []
  },
  {
@@ -417,6 +492,11 @@
     "type": "uint32",
     "name": "epoch",
     "indexed": false
+   },
+   {
+    "type": "bool",
+    "name": "requireVerifiedGuardians",
+    "indexed": false
    }
   ]
  },
@@ -433,6 +513,23 @@
    {
     "type": "uint64",
     "name": "timestamp",
+    "indexed": false
+   }
+  ]
+ },
+ {
+  "type": "event",
+  "anonymous": false,
+  "name": "IdentityVerified",
+  "inputs": [
+   {
+    "type": "address",
+    "name": "account",
+    "indexed": true
+   },
+   {
+    "type": "uint256",
+    "name": "nullifier",
     "indexed": false
    }
   ]
@@ -494,6 +591,11 @@
     "type": "uint64",
     "name": "heartbeatInterval",
     "indexed": false
+   },
+   {
+    "type": "bool",
+    "name": "requireVerifiedGuardians",
+    "indexed": false
    }
   ]
  },
@@ -519,6 +621,20 @@
   "outputs": [
    {
     "type": "uint8",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "MAX_PROOF_AGE",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [],
+  "outputs": [
+   {
+    "type": "uint64",
     "name": ""
    }
   ]
@@ -604,6 +720,14 @@
      {
       "type": "uint64",
       "name": "attestationDeadline"
+     },
+     {
+      "type": "bool",
+      "name": "requireBeneficiaryZK"
+     },
+     {
+      "type": "bool",
+      "name": "requireAge18"
      }
     ]
    }
@@ -612,6 +736,29 @@
    {
     "type": "uint256",
     "name": "id"
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "ageSignal",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "claimId"
+   },
+   {
+    "type": "address",
+    "name": "who"
+   }
+  ],
+  "outputs": [
+   {
+    "type": "uint256",
+    "name": ""
    }
   ]
  },
@@ -709,6 +856,29 @@
  },
  {
   "type": "function",
+  "name": "claimSignal",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "claimId"
+   },
+   {
+    "type": "address",
+    "name": "who"
+   }
+  ],
+  "outputs": [
+   {
+    "type": "uint256",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
   "name": "claimsByGuardian",
   "constant": true,
   "stateMutability": "view",
@@ -743,6 +913,10 @@
    {
     "type": "uint64",
     "name": "heartbeatInterval"
+   },
+   {
+    "type": "bool",
+    "name": "requireVerifiedGuardians"
    }
   ],
   "outputs": []
@@ -756,6 +930,28 @@
    {
     "type": "uint256",
     "name": "claimId"
+   },
+   {
+    "type": "tuple",
+    "name": "proof",
+    "components": [
+     {
+      "type": "uint256",
+      "name": "nullifier"
+     },
+     {
+      "type": "uint256",
+      "name": "timestamp"
+     },
+     {
+      "type": "uint256[4]",
+      "name": "revealArray"
+     },
+     {
+      "type": "uint256[8]",
+      "name": "groth16Proof"
+     }
+    ]
    }
   ],
   "outputs": []
@@ -845,6 +1041,14 @@
        {
         "type": "uint64",
         "name": "attestationDeadline"
+       },
+       {
+        "type": "bool",
+        "name": "requireBeneficiaryZK"
+       },
+       {
+        "type": "bool",
+        "name": "requireAge18"
        }
       ]
      },
@@ -1036,6 +1240,10 @@
       "name": "epoch"
      },
      {
+      "type": "bool",
+      "name": "requireVerifiedGuardians"
+     },
+     {
       "type": "address[]",
       "name": "guardians"
      }
@@ -1091,6 +1299,25 @@
  },
  {
   "type": "function",
+  "name": "identitySignal",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [
+   {
+    "type": "address",
+    "name": "who"
+   }
+  ],
+  "outputs": [
+   {
+    "type": "uint256",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
   "name": "isClaimInvalidated",
   "constant": true,
   "stateMutability": "view",
@@ -1104,6 +1331,77 @@
   "outputs": [
    {
     "type": "bool",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "isVerified",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [
+   {
+    "type": "address",
+    "name": "account"
+   }
+  ],
+  "outputs": [
+   {
+    "type": "bool",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "nullifierOf",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [
+   {
+    "type": "address",
+    "name": ""
+   }
+  ],
+  "outputs": [
+   {
+    "type": "uint256",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "nullifierOwner",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": ""
+   }
+  ],
+  "outputs": [
+   {
+    "type": "address",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "nullifierSeed",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [],
+  "outputs": [
+   {
+    "type": "uint256",
     "name": ""
    }
   ]
@@ -1137,6 +1435,28 @@
    {
     "type": "string",
     "name": "evidenceStorageId"
+   },
+   {
+    "type": "tuple",
+    "name": "proof",
+    "components": [
+     {
+      "type": "uint256",
+      "name": "nullifier"
+     },
+     {
+      "type": "uint256",
+      "name": "timestamp"
+     },
+     {
+      "type": "uint256[4]",
+      "name": "revealArray"
+     },
+     {
+      "type": "uint256[8]",
+      "name": "groth16Proof"
+     }
+    ]
    }
   ],
   "outputs": [
@@ -1189,6 +1509,10 @@
    {
     "type": "uint8",
     "name": "threshold"
+   },
+   {
+    "type": "bool",
+    "name": "requireVerifiedGuardians"
    }
   ],
   "outputs": []
@@ -1235,6 +1559,51 @@
    {
     "type": "bytes",
     "name": "ownerWrappedKey"
+   }
+  ],
+  "outputs": []
+ },
+ {
+  "type": "function",
+  "name": "verifier",
+  "constant": true,
+  "stateMutability": "view",
+  "payable": false,
+  "inputs": [],
+  "outputs": [
+   {
+    "type": "address",
+    "name": ""
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "verifyIdentity",
+  "constant": false,
+  "payable": false,
+  "inputs": [
+   {
+    "type": "tuple",
+    "name": "proof",
+    "components": [
+     {
+      "type": "uint256",
+      "name": "nullifier"
+     },
+     {
+      "type": "uint256",
+      "name": "timestamp"
+     },
+     {
+      "type": "uint256[4]",
+      "name": "revealArray"
+     },
+     {
+      "type": "uint256[8]",
+      "name": "groth16Proof"
+     }
+    ]
    }
   ],
   "outputs": []

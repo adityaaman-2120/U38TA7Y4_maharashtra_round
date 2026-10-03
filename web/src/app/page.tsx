@@ -27,6 +27,7 @@ const SAFEGUARDS = [
   { t: "Fraud flag", d: "Any guardian can flag a claim as fraudulent. It is blocked for good until you clear it yourself." },
   { t: "Panic freeze", d: "One button stops every claim on your vault. Unfreezing counts as a check-in." },
   { t: "Time lock", d: "Keep a file sealed until a date you choose, no matter how many guardians agree." },
+  { t: "Verified people", d: "Optionally require guardians to prove they are real, distinct people, and beneficiaries to prove who they are and that they are adults, using zero-knowledge proofs of Aadhaar. Nothing from the Aadhaar leaves the browser." },
   { t: "Silent guardians", d: "If a guardian never answers, the claim can still finish after your deadline, as long as the minimum threshold approved." },
 ];
 

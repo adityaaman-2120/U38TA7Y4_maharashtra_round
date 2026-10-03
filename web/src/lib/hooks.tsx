@@ -104,6 +104,10 @@ export const readers = {
   claim: async (c: C, k: Address, id: number): Promise<Claim> => toClaim(id, await read(c, k, "getClaim", [BigInt(id)])),
   ids: async (c: C, k: Address, fn: string, who: Address): Promise<number[]> => ((await read(c, k, fn, [who])) as bigint[]).map(Number),
   hasVault: async (c: C, k: Address, who: Address) => (await read(c, k, "hasVault", [who])) as boolean,
+  /** 0n when the address has not verified an identity. */
+  nullifierOf: async (c: C, k: Address, who: Address) => (await read(c, k, "nullifierOf", [who])) as bigint,
+  signal: async (c: C, k: Address, fn: "identitySignal" | "claimSignal" | "ageSignal", args: unknown[]) => (await read(c, k, fn, args)) as bigint,
+  claimCount: async (c: C, k: Address) => Number(await read(c, k, "claimCount")),
   encryptionKey: async (c: C, k: Address, who: Address) => (await read(c, k, "getEncryptionKey", [who])) as `0x${string}`,
 };
 

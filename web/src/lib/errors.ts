@@ -34,6 +34,16 @@ const MESSAGES: Record<string, string> = {
   NotYetUnlocked: "The asset's unlock time has not been reached.",
   NotEnoughApprovals: "Not enough guardian approvals yet.",
   ShareAlreadyReleased: "You already released your share.",
+  IdentityDisabled: "This deployment has no identity verifier.",
+  InvalidSeed: "Invalid identity configuration.",
+  InvalidProof: "The identity proof was not accepted. It may be for a different wallet, claim or purpose, or not valid.",
+  StaleProof: "The identity proof is too old. Proofs must be made within the last 3 hours; generate a new one.",
+  AlreadyVerified: "This wallet has already verified an identity.",
+  NullifierAlreadyUsed: "This identity is already linked to another wallet. One person can verify only one wallet.",
+  GuardianNotVerified: "Every guardian must verify an identity first, because this vault requires verified guardians.",
+  BeneficiaryNotVerified: "The beneficiary must verify an identity before a file can require identity proofs.",
+  NullifierMismatch: "This proof is not from the identity registered for the beneficiary.",
+  AgeNotProven: "The proof did not show that the beneficiary is over 18.",
 };
 
 export function humanError(e: unknown): string {

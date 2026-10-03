@@ -4,6 +4,8 @@ import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { inviteApi, type Invite, type InviteStatus, type Role } from "@/lib/api";
 import { fmtTime, shortAddr } from "@/lib/format";
 import { Badge, Btn, Card, EmptyState, Input, Label, ListSkeleton, Select, Stat, StatGrid } from "./ui";
+import { useVerifiedMap } from "@/lib/identity";
+import { VerifiedBadge } from "./VerifiedBadge";
 
 const TONE: Record<InviteStatus, "good" | "warn" | "bad" | "info"> = { accepted: "good", pending: "warn", expired: "bad", revoked: "info" };
 const ROLE_LABEL: Record<Role, string> = { guardian: "Guardian", beneficiary: "Beneficiary" };
@@ -15,6 +17,7 @@ export default function PeopleView() {
   const [notice, setNotice] = useState<{ tone: "ok" | "warn"; text: string; link?: string } | null>(null);
 
   const visible = (list.data ?? []).filter((i) => i.status !== "revoked");
+  const ver = useVerifiedMap(visible.map((i) => i.invitee?.address ?? ""));
   const count = (s: InviteStatus) => visible.filter((i) => i.status === s).length;
 
   return (
@@ -43,7 +46,7 @@ export default function PeopleView() {
           <EmptyState title="Nobody here yet" hint="Invite the people you trust by email. They sign in, set up their key and accept, and then you can choose them." />
         ) : (
           <ul className="divide-y divide-line" data-testid="invite-list">
-            {visible.map((i) => <InviteRow key={i.id} invite={i} onChange={refresh} onNotice={setNotice} />)}
+            {visible.map((i) => <InviteRow key={i.id} invite={i} verified={i.invitee ? ver.isVerified(i.invitee.address) : false} showVerified={ver.enabled} onChange={refresh} onNotice={setNotice} />)}
           </ul>
         )}
       </Card>
@@ -86,7 +89,7 @@ function InviteForm({ onDone }: { onDone: (n: { tone: "ok" | "warn"; text: strin
   );
 }
 
-function InviteRow({ invite, onChange, onNotice }: { invite: Invite; onChange: () => void; onNotice: (n: { tone: "ok" | "warn"; text: string; link?: string }) => void }) {
+function InviteRow({ invite, verified, showVerified, onChange, onNotice }: { invite: Invite; verified: boolean; showVerified: boolean; onChange: () => void; onNotice: (n: { tone: "ok" | "warn"; text: string; link?: string }) => void }) {
   const resend = useMutation({
     mutationFn: () => inviteApi.resend(invite.id),
     onSuccess: (inv) => {
@@ -104,6 +107,7 @@ function InviteRow({ invite, onChange, onNotice }: { invite: Invite; onChange: (
         <p className="flex flex-wrap items-center gap-2 text-sm font-medium text-ink">
           {invite.invitee?.name || invite.name || invite.email}
           <Badge tone={TONE[invite.status]}>{invite.status}</Badge>
+          {invite.status === "accepted" && showVerified && <VerifiedBadge verified={verified} />}
           <span className="text-xs font-normal text-muted">{ROLE_LABEL[invite.role]}</span>
         </p>
         <p className="mt-0.5 break-all text-xs text-muted">

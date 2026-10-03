@@ -23,6 +23,16 @@ class ChainClient(Protocol):
     def asset_policy(self, asset_id: int) -> dict: ...  # attestationDeadline, challengePeriod, requiredApprovals, ...
 
 
+def _policy_from_asset(abi: list, asset) -> dict:
+    """The Asset struct comes back from web3 as a tuple. Field names are read from the ABI, so adding a policy field to the
+    contract cannot silently shift or break this."""
+    fn = next(e for e in abi if e.get("type") == "function" and e["name"] == "getAsset")
+    fields = fn["outputs"][0]["components"]
+    index = next(i for i, c in enumerate(fields) if c["name"] == "policy")
+    names = [c["name"] for c in fields[index]["components"]]
+    return dict(zip(names, (int(x) for x in asset[index]), strict=True))
+
+
 def _hex(x) -> str:
     return "0x" + bytes(x).hex()
 
@@ -82,9 +92,4 @@ class Web3Client:
         return self._tx_cache[tx_hash]
 
     def asset_policy(self, asset_id: int) -> dict:
-        asset = self.contract.functions.getAsset(asset_id).call()
-        # The Asset struct comes back as a tuple; index 7 is `policy`:
-        # (requiredApprovals, challengePeriod, minInactivity, unlockAfter, evidenceType, attestationDeadline)
-        policy = asset[7]
-        keys = ["requiredApprovals", "challengePeriod", "minInactivity", "unlockAfter", "evidenceType", "attestationDeadline"]
-        return dict(zip(keys, (int(x) for x in policy), strict=True))
+        return _policy_from_asset(self.contract.abi, self.contract.functions.getAsset(asset_id).call())

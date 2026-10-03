@@ -19,7 +19,8 @@
       }
     ],
     "paths": {
-      "@/*": ["./src/*"]
+      "@/*": ["./src/*"],
+      "@anon-aadhaar/core": ["./src/vendor/anon-aadhaar-core/index"]
     }
   },
   "include": [

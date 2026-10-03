@@ -16,12 +16,14 @@ const CHAIN: Row[] = [
   { what: "Each reserved file", form: "Beneficiary address, the IPFS id of the encrypted file, a salted SHA-256 fingerprint of the content, and the policy numbers (approvals needed, waiting periods, evidence type, optional unlock time).", who: "Anyone can see these facts. Nobody can see the content." },
   { what: "Key shares", form: "One share of each file's key per guardian, each encrypted to that guardian's public key, plus one copy of the key encrypted to the owner's public key.", who: "Only the guardian (or the owner) whose private key matches." },
   { what: "Each claim", form: "Who raised it and when, the evidence type, a salted fingerprint and IPFS id of the encrypted evidence, approval and rejection counts, the fraud flag, and later the shares each guardian re-encrypted to the beneficiary.", who: "Anyone sees the facts. Only the beneficiary can open released shares." },
+  { what: "Verified identity (optional)", form: "For each wallet that verified: a nullifier, a one-way pseudonym derived for Heirloom only. A claim's transaction also carries the zero-knowledge proof, which for an over-18 check includes that single bit. Never an Aadhaar number, name, date of birth, address or photo.", who: "Anyone. The pseudonym cannot be traced to an Aadhaar or linked to activity in other apps." },
   { what: "Event history", form: "A log entry for every action above. A guardian's reason for rejecting is stored only as a hash.", who: "Anyone. This is the audit trail." },
 ];
 
 const SERVER: Row[] = [
   { what: "Your account", form: "Wallet address, name, email, and an optional phone number, exactly as you entered them.", who: "Heirloom's server. Never on the blockchain." },
   { what: "Your sealed encryption key", form: "Your private key, already encrypted in your browser with AES-256-GCM under a key derived from your password (PBKDF2-SHA256, 600,000 rounds). Stored so you can sign in from another device.", who: "Stored by the server, but unreadable without your password, which never leaves your browser." },
+  { what: "Aadhaar data", form: "None. The Aadhaar QR code is read and the proof is generated in your browser; the server receives neither.", who: "Nobody but you." },
   { what: "Invitations", form: "The invitee's email, the name you gave them, their role, status and expiry. The emailed link carries a signed token, not personal data.", who: "The server and the invited person's inbox." },
   { what: "Notifications", form: "The text of each alert and email (for example \"claim #2 was raised on asset #0\") and whether it was read. No file contents.", who: "The server, plus your mail provider when an email is sent." },
   { what: "A copy of the chain's events", form: "The same public events as above, plus the address that sent each transaction, so the audit page and alerts are fast.", who: "The server. It adds nothing that is not already public." },
@@ -38,6 +40,7 @@ const NEVER = [
   "A file's encryption key (DEK) in any usable form. It exists whole only in your browser while you upload, and later in the beneficiary's browser.",
   "Your encryption private key unsealed, or the password that seals it.",
   "Any guardian's share of a key in plaintext.",
+  "Your Aadhaar QR code, or any field in it: Aadhaar number, name, date of birth, address, photo.",
 ];
 
 const WHY: { title: string; body: string }[] = [
@@ -53,6 +56,7 @@ const LIMITS: { title: string; body: ReactNode }[] = [
   { title: "A weak password can be guessed offline", body: "Because the sealed key is stored on the server, someone who obtained it could try passwords against it. The 600,000-round key derivation makes each guess slow, but only a long, unique password truly protects you. We require at least 12 characters." },
   { title: "You trust the code you are served", body: "The app runs in your browser, and the encryption happens there. A compromised web host could serve altered code. Open-source and reproducible builds would reduce this; they are not in place yet." },
   { title: "Guardians are a trust assumption", body: "If enough guardians to meet the threshold collude with a beneficiary, they could release a file early. Your check-ins, the waiting period, the fraud flag and the freeze button exist to make that hard to do unnoticed." },
+  { title: "Identity proofs have their own assumptions", body: "Verification uses the open-source Anon Aadhaar protocol. UIDAI, which issues Aadhaar, could in principle deanonymize a holder; the protocol hides identities from everyone else. A deployment is set to accept either test QR codes or genuine ones, and test deployments accept test QR codes only. Proving in the browser downloads a large circuit key (about 600 MB, once) from the Anon Aadhaar project's storage." },
   { title: "This is an unaudited prototype", body: "The smart contract and the app have been tested but not independently audited. Do not store anything you cannot afford to lose." },
 ];
 
@@ -127,6 +131,23 @@ export default function SecurityPage() {
               </li>
             ))}
           </ol>
+        </section>
+
+        <section id="identity" className="mt-14 scroll-mt-8 rounded-2xl border border-line bg-surface p-6 sm:p-8">
+          <h2 className="font-display text-3xl text-ink sm:text-4xl">Optional: proving who you are, without showing your Aadhaar</h2>
+          <p className="mt-3 max-w-3xl text-ink-2">
+            People can verify that they hold a valid Aadhaar using a zero-knowledge proof. Owners can then require it. Everything about it is opt-in.
+          </p>
+          <ul className="mt-5 grid gap-4 sm:grid-cols-2">
+            {[
+              ["The Aadhaar never leaves your browser", "The QR code is read locally and the proof is generated on your device. Heirloom's server never receives it."],
+              ["One person, one wallet", "A verified wallet is tied to a pseudonym, and a pseudonym can be tied to only one wallet, so a person cannot hold several guardian seats."],
+              ["Proofs cannot be borrowed", "Each proof is bound to the wallet, the chain and the specific purpose. A proof copied from the network is useless to anyone else, and one made for a claim cannot be reused for another."],
+              ["Only what is asked is proven", "For an adult check the only fact revealed is \"over 18\". No date of birth is stored. Proofs must be recent (at most 3 hours old)."],
+            ].map(([t, b]) => (
+              <li key={t} className="border-t border-line-strong pt-3"><p className="font-display text-xl text-ink">{t}</p><p className="mt-1 text-sm leading-relaxed text-ink-2">{b}</p></li>
+            ))}
+          </ul>
         </section>
 
         <section className="mt-14">

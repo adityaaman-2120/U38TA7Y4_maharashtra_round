@@ -18,17 +18,25 @@ cp backend/.env.example backend/.env   # set DJANGO_SECRET_KEY and POSTGRES_PASS
 
 ## Local development
 ```bash
-npm run backend:up   # Postgres, Redis, API, Celery worker + beat in Docker (http://127.0.0.1:8000, set BACKEND_PORT to change)
-HARDHAT_HOST=0.0.0.0 npm run dev   # hardhat node :8545 → compile + deploy → Next.js :3000
+npm run backend:up     # Postgres, Redis, API, Celery worker + beat in Docker (http://127.0.0.1:8000, BACKEND_PORT to change)
+npm run dev            # hardhat node :8545 → compile + deploy → Next.js :3000
 ```
-`HARDHAT_HOST=0.0.0.0` lets the indexer in Docker reach the node on your machine (PowerShell: `$env:HARDHAT_HOST="0.0.0.0"`). The node's accounts
-and keys are public, so only do this on a network you trust. Deploying also writes the ABI and address to `backend/chain/`, which the
-workers re-read on every run.
-The browser only talks to Next.js; `/backend/*` is proxied to the API (`BACKEND_URL` in `web/.env.local`), so the session cookie stays
-first-party. With `DJANGO_DEBUG=1` invitation emails are printed to the API log and the invite link is also shown to the owner.
-Add the "Localhost" network (chain 31337, RPC `http://127.0.0.1:8545`) to MetaMask and import Hardhat test accounts,
-or let the app's *Switch network* button add it. Deploys write `web/src/lib/contracts.ts` (ABI + addresses per chain).
-Restarting the node resets the chain; clear the site's localStorage (or re-import your recovery file) for a fresh start.
+| Command | What it does |
+|---|---|
+| `npm run dev` | Starts everything once. First checks that ports 3000 and 8545 are free and, if not, stops with the PID and the exact fix instead of half-starting. Deploys the **real** Anon Aadhaar verifier in test mode (identity proofs need the Anon Aadhaar SDK and a test QR). |
+| `npm run dev:clean` | Stops stale Heirloom dev servers (an old `next dev`, an old Hardhat node) on 3000/3001/8545, then `npm run dev`. It never touches a process that is not clearly this project's. |
+| `npm run dev:mock` / `dev:mock:clean` | Same, but with the local **test double** for identity (`ANON_AADHAAR_VERIFIER=mock`, `NEXT_PUBLIC_ZK_PROVER=mock`): enter a made-up person id instead of an Aadhaar QR. Handy for trying the whole app without the 600 MB circuit key. |
+| `npm run ports:free` | Just the cleanup, without starting anything. |
+
+The scripts set `HARDHAT_HOST=0.0.0.0` so the indexer in Docker can reach the node on your machine. The node's accounts and keys are public, so only run it on a
+network you trust (edit the `dev` scripts to drop it if you do not use the Docker backend). The browser only talks to Next.js; `/backend/*` is proxied to the API
+(`BACKEND_URL` in `web/.env.local`). Deploying writes the ABI and address to `web/src/lib/contracts.ts` and `backend/chain/`.
+
+**If the app keeps "loading" or says Heirloom isn't on Localhost:** the page and the chain disagree. A restarted local chain starts empty and is redeployed, so an
+open tab holds the old address. The app now says so instead of spinning. Make sure only one `npm run dev` is running (`npm run dev:clean` guarantees that), wait for
+`Heirloom deployed to …`, then hard-reload the page. Stopping the chain also stops the web server on purpose: `npm run dev` runs them as one unit. After a restart you
+also need to re-register your encryption key (the chain forgot it) and sign in again if the backend was flushed.
+If a wallet shows a red network-fee warning on Localhost, the account has no test ETH: list its address in `contracts/fund.local.json` and restart.
 
 ## Sepolia
 ```bash
@@ -118,7 +126,7 @@ directly if the indexer is unreachable, stalled, reporting an error, or more tha
 5. **Audit** — every contract event with readable labels, filters (asset, claim, event type, actor, "only mine") and explorer links.
    **Export PDF report** builds, in the browser, a chronological report of the filtered events with full transaction hashes (linked to the explorer),
    senders, the contract address and a per-event summary.
-6. **Account** — edit your details, download a recovery file, and change your encryption password (see Recovery below).
+6. **Account** — edit your details, verify your identity (optional, zero-knowledge), download a recovery file, and change your encryption password (see Recovery below).
 7. **Security page** (`/security`) — lists exactly what the blockchain, the server and the storage provider each hold, and why none can decrypt.
 
 ### Reserving a file or a final letter
@@ -165,6 +173,54 @@ plaintext) and the bundle's storage id. Guardians check the decrypted file again
 
 Known limits: guardians are trusted to review honestly (a threshold of them colluding with a beneficiary could release early,
 which is why the owner's challenge period and check-in exist), and the contract is unaudited.
+
+## Zero-knowledge identity (Anon Aadhaar)
+Optional, per vault and per file. People can prove, in zero knowledge, that they hold a valid Aadhaar, so one person cannot pose as several guardians or
+claim as someone else. **No Aadhaar data ever leaves the browser, and nothing but a pseudonym reaches the chain.**
+
+| Rule | Where it is enforced |
+|---|---|
+| `verifyIdentity(proof)` binds an address to a **nullifier** (a per-app pseudonym). One nullifier per address, one address per nullifier, so a person cannot verify two wallets. | `Heirloom.sol` |
+| The proof's **signal binds to `msg.sender`** (and chain, contract, purpose), so a proof copied from the mempool is useless to anyone else. Emits `IdentityVerified(account, nullifier)`, no personal data. | `Heirloom.sol` |
+| **Verified guardians** (`requireVerifiedGuardians`, set in `createVault` / `rotateGuardians`): every guardian must hold a verified identity; their nullifiers are necessarily distinct. | `Heirloom.sol` |
+| **Beneficiary identity** (`requireBeneficiaryZK`, asset policy): `raiseClaim` needs a fresh proof whose nullifier is the beneficiary's registered one, signal bound to the claim id. | `Heirloom.sol` |
+| **Over 18** (`requireAge18`, asset policy): `finalizeClaim` needs a proof of the beneficiary's identity that reveals `ageAbove18 = 1`. Only that bit is revealed; no date of birth is stored. | `Heirloom.sol` |
+| **Freshness**: proofs must be at most 3 hours old. The Anon Aadhaar verifier does not check this, so Heirloom does (QR timestamps are rounded to the hour). | `Heirloom.sol` |
+
+Signals are `keccak256(domain, chainId, contract, id, address)` with separate domains for identity, claim and age, so a proof made for one purpose cannot be
+replayed for another, on another chain, or for another claim. A claim proof is bound to the id the claim is about to get; if someone else's claim lands first the
+id moves and the proof must be regenerated (the app detects this and asks you to retry).
+
+**Packages** (checked against npm on 2026-10-04): `@anon-aadhaar/react`, `@anon-aadhaar/core` and `@anon-aadhaar/contracts` all at **2.4.3** (published
+Dec 2024). The React package declares a peer of React 18; the app runs React 19, so `web/package.json` carries npm `overrides` to give both packages the app's single
+React. `@anon-aadhaar/core` ships TypeScript source that does not pass our strict type-check, so `web/src/vendor/anon-aadhaar-core` is a type facade that re-exports
+the real package for the bundler (see the comment there). The SDK is loaded lazily, only when someone starts a proof.
+
+**Deploying the verifier** (`contracts/scripts/deploy.js`):
+| Env | Effect |
+|---|---|
+| *(default)* | Deploys the official Groth16 `Verifier` and `AnonAadhaar` from `@anon-aadhaar/contracts`. |
+| `ANON_AADHAAR_MODE=test` (default) / `real` | Which UIDAI public key the verifier trusts: the published **test** key (accepts only test QR codes) or the production key (accepts only genuine Aadhaar QR codes). |
+| `ANON_AADHAAR_VERIFIER=0x…` | Point at an existing AnonAadhaar contract instead of deploying one. I found no official Amoy deployment in the docs, so on Amoy the default deploys one. |
+| `ANON_AADHAAR_VERIFIER=none` | Identity features disabled on this deployment. |
+| `ANON_AADHAAR_VERIFIER=mock` | A **test double** that accepts any "proof" committing to the right inputs. Local chains only, refused elsewhere. |
+| `ANON_AADHAAR_NULLIFIER_SEED` | This app's seed (default: `keccak256("heirloom.anon-aadhaar.v1") >> 8`). |
+
+**Frontend flags:** `NEXT_PUBLIC_ANON_AADHAAR_MODE=test|real` (which QR codes the SDK accepts; must match the verifier, the app warns if not; defaults to the deployment's)
+and `NEXT_PUBLIC_ZK_PROVER=mock` (local test double, only with a locally deployed mock verifier). For a full local run without the 600 MB circuit key:
+`ANON_AADHAAR_VERIFIER=mock NEXT_PUBLIC_ZK_PROVER=mock HARDHAT_HOST=0.0.0.0 npm run dev`. Real proving downloads about 10 MB of WASM and **about 600 MB of proving
+key on first use** (cached afterwards), needs several GB of memory and takes a minute or two.
+
+**In the app:** onboarding offers an optional *Verify identity (zero-knowledge)* step (skippable; also on the Account page) with a plain statement that Aadhaar data
+stays in the browser. Verified guardians and beneficiaries get a badge (People, vault, pickers). Owners can tick *Require verified guardians* (vault) and *identity proof to claim* /
+*over-18 proof to finalize* (per file). Beneficiaries are walked through the proof when they raise a claim or finalize.
+
+**What is and is not tested.** Hardhat tests cover every rule above against a mock verifier (`test/Identity.test.js`), including that the SDK's own `hash()` equals the contract's
+signal hash, and that the **real** `Verifier` + `AnonAadhaar` contracts deploy under our compiler and reject junk cleanly (`test/RealVerifier.test.js`). The browser flow is exercised
+end to end with the local test double (identity step, one person one wallet, verified guardians, identity proof to claim, proof of age to finalize, badges). A second browser
+check runs the app against the **real** verifier deployment with the **real SDK**: the UI and test-mode notice render, the SDK loads in the React 19 / Turbopack bundle, and
+non-Aadhaar input is refused with a clear message. **A real proof (genuine or test QR, real circuit) has not been generated or verified on-chain in this repository**: it needs a signed
+QR and the 600 MB proving key. Try it once on a testnet with a test QR from the Anon Aadhaar documentation before relying on it. UIDAI, as the issuer, can in principle deanonymize holders; the protocol hides identities from everyone else.
 
 ## Storage API
 `POST /api/storage` (`Content-Type: application/octet-stream`, ≤ 25 MB) pins ciphertext to Pinata using the server-side

@@ -14,6 +14,9 @@ import { useContacts } from "@/lib/contacts";
 import { NoPeople, PersonSelect, type Person } from "./PersonSelect";
 import { Letter } from "./Letter";
 import { reshareDek } from "@/lib/rotation";
+import { useVerifiedMap } from "@/lib/identity";
+import { identityEnabled } from "@/lib/zk/config";
+import { VerifiedBadge } from "./VerifiedBadge";
 import { useKey } from "./KeyProvider";
 
 const MIN_SECONDS = 300;
@@ -72,7 +75,10 @@ function CreateVault({ onGoPeople }: { onGoPeople?: () => void }) {
   const send = useTx();
   const contacts = useContacts("guardian");
   const people: Person[] = (contacts.data ?? []).map((c) => ({ address: c.invitee.address, name: c.invitee.name }));
-  const { address } = useHeirloom();
+  const { address, chainId } = useHeirloom();
+  const idOn = identityEnabled(chainId);
+  const [requireVerified, setRequireVerified] = useState(false);
+  const ver = useVerifiedMap(people.map((p) => p.address));
   const [guardians, setGuardians] = useState(["", "", ""]);
   const [threshold, setThreshold] = useState(2);
   const [interval, setInterval_] = useState({ v: 30, u: "days" as Unit });
@@ -85,11 +91,12 @@ function CreateVault({ onGoPeople }: { onGoPeople?: () => void }) {
   const allOk = guardians.every((g, i) => status(g) === "ok" && !dup(i) && !self(i));
   const seconds = secs(interval.v, interval.u);
   const th = Math.min(threshold, guardians.length);
-  const valid = allOk && seconds >= MIN_SECONDS && th >= 2;
+  const verifiedOk = !requireVerified || guardians.every((g) => g !== "" && ver.isVerified(g));
+  const valid = allOk && seconds >= MIN_SECONDS && th >= 2 && verifiedOk;
 
   const submit = async () => {
     setBusy(true);
-    await send("Create vault", "createVault", [guardians, th, BigInt(seconds)]);
+    await send("Create vault", "createVault", [guardians, th, BigInt(seconds), requireVerified]);
     setBusy(false);
   };
 
@@ -103,15 +110,24 @@ function CreateVault({ onGoPeople }: { onGoPeople?: () => void }) {
         <NoPeople message={`You have ${people.length} accepted guardian${people.length === 1 ? "" : "s"}; a vault needs at least 3. Invite people by email and ask them to accept.`} onGoPeople={onGoPeople} />
       )}
       {guardians.map((g, i) => (
-        <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : self(i) ? "You cannot be your own guardian" : STATUS_TEXT[status(g)]}>
+        <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : self(i) ? "You cannot be your own guardian" : requireVerified && !ver.isVerified(g) ? "Not verified: this vault requires verified guardians" : STATUS_TEXT[status(g)]}>
           <div className="flex gap-2">
-            <PersonSelect value={g} people={people} taken={guardians} placeholder="Choose a guardian…" testId={`guardian-${i}`}
+            <PersonSelect value={g} people={people} taken={guardians} placeholder="Choose a guardian…" testId={`guardian-${i}`} verified={ver.isVerified}
               onChange={(v) => setGuardians(guardians.map((x, j) => (j === i ? v : x)))} />
             {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>Remove</Btn>}
           </div>
         </Label>
       ))}
       {guardians.length < 7 && <Btn tone="ghost" onClick={() => setGuardians([...guardians, ""])}>+ Add guardian</Btn>}
+      {idOn && (
+        <label className="flex items-start gap-2.5 rounded-lg border border-line bg-sunken/50 p-3 text-sm text-ink-2">
+          <input type="checkbox" checked={requireVerified} onChange={(e) => setRequireVerified(e.target.checked)} className="mt-1" data-testid="require-verified" />
+          <span>
+            <b className="text-ink">Require verified guardians.</b> Every guardian must have proved, with a zero-knowledge proof, that they are one real Aadhaar holder, so one
+            person cannot hold several guardian seats. Their Aadhaar data never leaves their browser.
+          </span>
+        </label>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Label text="Guardians needed to reconstruct the key (threshold)">
           <Select value={th} onChange={(e) => setThreshold(Number(e.target.value))} data-testid="threshold">
@@ -131,6 +147,7 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   const send = useTx();
   const now = useNow();
   const [busy, setBusy] = useState(false);
+  const ver = useVerifiedMap(vault.guardians);
   const due = vault.lastHeartbeat + vault.heartbeatInterval;
   const act = async (label: string, fn: string) => {
     setBusy(true);
@@ -144,8 +161,11 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
         {now < due ? <>next due in <b data-testid="next-due">{fmtDuration(due - now)}</b></> : <span className="text-warn">overdue by {fmtDuration(now - due)}</span>}
         {" "}· interval {fmtDuration(vault.heartbeatInterval)}
       </p>
-      <p className="text-sm text-muted">Guardians (need {vault.threshold} of {vault.guardians.length}):</p>
-      <ul className="space-y-0.5">{vault.guardians.map((g) => <li key={g}><Mono>{g}</Mono></li>)}</ul>
+      <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
+        Guardians (need {vault.threshold} of {vault.guardians.length}):
+        {vault.requireVerifiedGuardians && <Badge tone="info">Verified guardians required</Badge>}
+      </p>
+      <ul className="space-y-1">{vault.guardians.map((g) => <li key={g} className="flex flex-wrap items-center gap-2"><Mono>{g}</Mono><VerifiedBadge verified={ver.isVerified(g)} compact={!ver.enabled} /></li>)}</ul>
       <div className="flex flex-wrap gap-2">
         <Btn disabled={busy} onClick={() => act("Check in", "heartbeat")} data-testid="heartbeat">I&apos;m alive</Btn>
         {vault.frozen
@@ -160,17 +180,20 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
 function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract").Vault; onGoPeople?: () => void }) {
   const send = useTx();
   const key = useKey();
-  const { address, publicClient, deployment } = useHeirloom();
+  const { address, publicClient, deployment, chainId } = useHeirloom();
+  const idOn = identityEnabled(chainId);
   const contacts = useContacts("guardian");
   const known = new Map((contacts.data ?? []).map((c) => [c.invitee.address.toLowerCase(), c.invitee.name]));
   const owned = useOwnerAssets();
   const [open, setOpen] = useState(false);
   const [guardians, setGuardians] = useState<string[]>(vault.guardians);
   const [threshold, setThreshold] = useState(vault.threshold);
+  const [requireVerified, setRequireVerified] = useState(vault.requireVerifiedGuardians);
   const [busy, setBusy] = useState(false);
   const [step, setStep] = useState("");
   const [error, setError] = useState("");
   const status = useRegistered(guardians);
+  const ver = useVerifiedMap([...guardians, ...vault.guardians, ...(contacts.data ?? []).map((c) => c.invitee.address)]);
   // New guardians must be accepted contacts; guardians already on the vault stay selectable so they can be kept.
   const rotatePeople: Person[] = [
     ...vault.guardians.map((g) => ({ address: g, name: known.get(g.toLowerCase()) ?? "Current guardian" })),
@@ -179,7 +202,7 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
   const lower = guardians.map((g) => g.toLowerCase());
   const dup = (i: number) => guardians[i] !== "" && lower.indexOf(lower[i]) !== i;
   const th = Math.min(threshold, guardians.length);
-  const valid = guardians.length >= 3 && th >= 2 && guardians.every((g, i) => status(g) === "ok" && !dup(i) && lower[i] !== address?.toLowerCase());
+  const valid = guardians.length >= 3 && th >= 2 && guardians.every((g, i) => status(g) === "ok" && !dup(i) && lower[i] !== address?.toLowerCase()) && (!requireVerified || guardians.every((g) => ver.isVerified(g)));
 
   // Files that are still sealed and will be re-split. Released files are final and are left alone.
   const sealed = (owned.data ?? []).filter((r) => !r.asset.released).map((r) => r.asset);
@@ -203,7 +226,7 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
       for (const { id, dek } of deks) prepared.push({ id, ...(await reshareDek(dek, keys, th, key.publicKey)) });
       // 3. Replace the guardians (this also counts as a check-in), then store the new shares per file.
       setStep("Confirm the guardian change in your wallet…");
-      if (!(await send("Replace guardians", "rotateGuardians", [guardians, th]))) throw new Error("The guardian change was not confirmed. Nothing was changed.");
+      if (!(await send("Replace guardians", "rotateGuardians", [guardians, th, requireVerified]))) throw new Error("The guardian change was not confirmed. Nothing was changed.");
       for (const p of prepared) {
         setStep(`Re-sharing file ${++done} of ${prepared.length}…`);
         const ok = await send(`Re-share asset #${p.id}`, "updateAssetShares", [BigInt(p.id), p.encShares, p.ownerWrapped]);
@@ -237,15 +260,21 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
         <NoPeople message="To add a new guardian, invite them by email first and wait for them to accept." onGoPeople={onGoPeople} />
       )}
       {guardians.map((g, i) => (
-        <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : STATUS_TEXT[status(g)]}>
+        <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : requireVerified && !ver.isVerified(g) ? "Not verified: required by the policy below" : STATUS_TEXT[status(g)]}>
           <div className="flex gap-2">
-            <PersonSelect value={g} people={rotatePeople} taken={guardians} placeholder="Choose a guardian…" testId={`rotate-guardian-${i}`}
+            <PersonSelect value={g} people={rotatePeople} taken={guardians} placeholder="Choose a guardian…" testId={`rotate-guardian-${i}`} verified={ver.isVerified}
               onChange={(v) => setGuardians(guardians.map((x, j) => (j === i ? v : x)))} />
             {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>Remove</Btn>}
           </div>
         </Label>
       ))}
       {guardians.length < 7 && <Btn tone="ghost" onClick={() => setGuardians([...guardians, ""])}>+ Add guardian</Btn>}
+      {idOn && (
+        <label className="flex items-start gap-2.5 rounded-lg border border-line bg-sunken/50 p-3 text-sm text-ink-2">
+          <input type="checkbox" checked={requireVerified} onChange={(e) => setRequireVerified(e.target.checked)} className="mt-1" data-testid="rotate-require-verified" />
+          <span><b className="text-ink">Require verified guardians.</b> Applies to this set and to later changes.</span>
+        </label>
+      )}
       <Label text="Threshold">
         <Select value={th} onChange={(e) => setThreshold(Number(e.target.value))}>
           {Array.from({ length: guardians.length - 1 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n} of {guardians.length}</option>)}
@@ -271,7 +300,8 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   const beneficiaries = useContacts("beneficiary");
   const benPeople: Person[] = (beneficiaries.data ?? []).map((c) => ({ address: c.invitee.address, name: c.invitee.name }));
   const key = useKey();
-  const { publicClient, deployment } = useHeirloom();
+  const { publicClient, deployment, chainId } = useHeirloom();
+  const idOn = identityEnabled(chainId);
   const [kind, setKind] = useState<"file" | "letter">("file");
   const [pickedFile, setFile] = useState<File | null>(null);
   const [letterName, setLetterName] = useState("");
@@ -283,17 +313,21 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   const [deadline, setDeadline] = useState({ v: 7, u: "days" as Unit });
   const [unlock, setUnlock] = useState("");
   const [evidence, setEvidence] = useState(2);
+  const [requireZK, setRequireZK] = useState(false);
+  const [requireAge, setRequireAge] = useState(false);
   const [progress, setProgress] = useState("");
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState("");
   const status = useRegistered([beneficiary]);
+  const benVer = useVerifiedMap([beneficiary, ...benPeople.map((p) => p.address)]);
+  const identityOk = !(requireZK || requireAge) || benVer.isVerified(beneficiary);
   const now = useNow();
 
   const file = kind === "file" ? pickedFile : letterText.trim() ? letterToFile(letterName, letterText) : null;
   const unlockAfter = unlock ? Math.floor(new Date(unlock).getTime() / 1000) : 0;
   const periodsOk = [challenge, inactivity, deadline].every((d) => secs(d.v, d.u) >= MIN_SECONDS);
   const tooBig = file ? file.size * 1.4 > MAX_UPLOAD_BYTES : false; // headroom for encryption overhead
-  const valid = Boolean(file) && !tooBig && status(beneficiary) === "ok" && beneficiary.toLowerCase() !== vault.owner.toLowerCase() && periodsOk && (!unlock || unlockAfter > now);
+  const valid = Boolean(file) && !tooBig && status(beneficiary) === "ok" && beneficiary.toLowerCase() !== vault.owner.toLowerCase() && periodsOk && identityOk && (!unlock || unlockAfter > now);
 
   const submit = async () => {
     if (!file || !publicClient || !deployment) return;
@@ -319,6 +353,8 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
         unlockAfter: BigInt(unlockAfter),
         evidenceType: evidence,
         attestationDeadline: BigInt(secs(deadline.v, deadline.u)),
+        requireBeneficiaryZK: requireZK,
+        requireAge18: requireAge,
       };
       const ok = await send("Add asset", "addAsset", [beneficiary, cid, plaintextHash, encShares, ownerWrapped, policy]);
       if (ok) {
@@ -326,6 +362,8 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
         setLetterText("");
         setLetterName("");
         setBeneficiary("");
+        setRequireZK(false); // identity checks are a per-file decision: never carry them over silently
+        setRequireAge(false);
       }
     } catch (e) {
       setError(humanError(e));
@@ -363,8 +401,24 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
         <NoPeople message="You have no accepted beneficiaries yet. Invite the person by email; once they accept, you can reserve files for them." onGoPeople={onGoPeople} />
       )}
       <Label text="Beneficiary" hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? "You cannot be your own beneficiary" : STATUS_TEXT[status(beneficiary)]}>
-        <PersonSelect value={beneficiary} people={benPeople} placeholder="Choose a beneficiary…" testId="beneficiary" onChange={setBeneficiary} />
+        <PersonSelect value={beneficiary} people={benPeople} placeholder="Choose a beneficiary…" testId="beneficiary" onChange={setBeneficiary} verified={benVer.isVerified} />
       </Label>
+      {idOn && (
+        <div className="space-y-2 rounded-lg border border-line bg-sunken/50 p-3 text-sm text-ink-2">
+          <p className="font-medium text-ink">Identity checks for the beneficiary (optional)</p>
+          <label className="flex items-start gap-2.5">
+            <input type="checkbox" checked={requireZK} onChange={(e) => setRequireZK(e.target.checked)} className="mt-1" data-testid="require-zk" />
+            <span>Require a fresh identity proof to raise a claim: only the verified person behind this wallet can start it.</span>
+          </label>
+          <label className="flex items-start gap-2.5">
+            <input type="checkbox" checked={requireAge} onChange={(e) => setRequireAge(e.target.checked)} className="mt-1" data-testid="require-age" />
+            <span>Require proof that the beneficiary is over 18 to finalize. Only that single fact is proven; no date of birth is stored.</span>
+          </label>
+          {(requireZK || requireAge) && beneficiary !== "" && !benVer.isVerified(beneficiary) && (
+            <p className="text-xs text-warn" data-testid="beneficiary-unverified">This beneficiary has not verified an identity yet. Ask them to verify first (Account page).</p>
+          )}
+        </div>
+      )}
       <div className="grid gap-3 sm:grid-cols-2">
         <Label text="Guardian approvals required">
           <Select value={approvals} onChange={(e) => setApprovals(Number(e.target.value))} data-testid="approvals">
@@ -430,6 +484,7 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   const [note, setNote] = useState<Record<number, { ok: boolean; text: string }>>({});
   const [letters, setLetters] = useState<Record<number, { title: string; text: string }>>({});
   const list = useOwnerAssets();
+  const benVer = useVerifiedMap((list.data ?? []).map((r) => r.asset.beneficiary));
 
   const guard = async (id: number, fn: () => Promise<string | void>) => {
     setBusy(true);
@@ -476,6 +531,9 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
           <div className="flex flex-wrap items-center gap-2">
             <b>Asset #{asset.id}</b> → {shortAddr(asset.beneficiary)}
             {asset.released && <Badge tone="good">Released</Badge>}
+            <VerifiedBadge verified={benVer.isVerified(asset.beneficiary)} compact={!benVer.enabled} />
+            {asset.policy.requireBeneficiaryZK && <Badge tone="info">Identity proof to claim</Badge>}
+            {asset.policy.requireAge18 && <Badge tone="info">Over-18 proof to finalize</Badge>}
             {!asset.released && asset.sharesEpoch !== vault.epoch && <Badge tone="warn">Needs re-share</Badge>}
           </div>
           <p className="text-xs text-muted">
