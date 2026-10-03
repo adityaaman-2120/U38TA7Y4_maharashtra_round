@@ -57,7 +57,15 @@ export type Asset = {
   sharesEpoch: number;
   activeClaim: number;
   released: boolean;
+  kind: "data" | "crypto";
+  /** Crypto only: address(0) is the chain's native currency. */
+  token: Address;
+  /** Crypto only: what is locked in the asset. */
+  balance: bigint;
 };
+
+export const NATIVE: Address = "0x0000000000000000000000000000000000000000";
+export const isCrypto = (a: Pick<Asset, "kind">) => a.kind === "crypto";
 
 export type Claim = {
   id: number;
@@ -109,6 +117,9 @@ export const toAsset = (id: number, a: any): Asset => ({
   sharesEpoch: Number(a.sharesEpoch),
   activeClaim: Number(a.activeClaim),
   released: a.released,
+  kind: Number(a.kind) === 1 ? "crypto" : "data",
+  token: a.token,
+  balance: BigInt(a.balance),
 });
 
 export const toClaim = (id: number, c: any): Claim => ({

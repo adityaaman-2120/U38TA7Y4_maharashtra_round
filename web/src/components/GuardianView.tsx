@@ -17,7 +17,7 @@ export default function GuardianView() {
 
   const bundles = [...(list.data ?? [])].reverse();
   const pending = bundles.filter((b) => claimState(b).open && b.response.attestation === 0).length;
-  const toRelease = bundles.filter((b) => b.claim.status === 3 && b.released[b.claim.guardians.findIndex((g) => g.toLowerCase() === address?.toLowerCase())] === "0x").length;
+  const toRelease = bundles.filter((b) => b.asset.kind === "data" && b.claim.status === 3 && b.released[b.claim.guardians.findIndex((g) => g.toLowerCase() === address?.toLowerCase())] === "0x").length;
 
   return (
     <div className="space-y-4">
@@ -99,9 +99,10 @@ function GuardianClaim({ bundle }: { bundle: ClaimBundle }) {
           </div>
         </div>
       )}
-      {claim.status === 3 && (mine && mine !== "0x"
+      {claim.status === 3 && asset.kind === "data" && (mine && mine !== "0x"
         ? <span className="text-xs text-ok">Share released ✓</span>
         : <Btn disabled={busy} data-testid="release" onClick={release}>Release my share</Btn>)}
+      {claim.status === 3 && asset.kind === "crypto" && <span className="text-xs text-muted">Finalized. This asset holds funds, so there is no share to release: the beneficiary withdraws them.</span>}
       {error && <p className="w-full text-xs text-bad">{error}</p>}
     </ClaimInfo>
   );

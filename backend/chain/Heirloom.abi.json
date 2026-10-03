@@ -61,6 +61,11 @@
  },
  {
   "type": "error",
+  "name": "ClaimActive",
+  "inputs": []
+ },
+ {
+  "type": "error",
   "name": "ClaimAlreadyActive",
   "inputs": []
  },
@@ -86,6 +91,11 @@
  },
  {
   "type": "error",
+  "name": "EmptyAsset",
+  "inputs": []
+ },
+ {
+  "type": "error",
   "name": "EmptyField",
   "inputs": []
  },
@@ -107,6 +117,11 @@
  {
   "type": "error",
   "name": "IdentityDisabled",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "InsufficientBalance",
   "inputs": []
  },
  {
@@ -147,6 +162,11 @@
  {
   "type": "error",
   "name": "InvalidThreshold",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "InvalidToken",
   "inputs": []
  },
  {
@@ -201,7 +221,17 @@
  },
  {
   "type": "error",
+  "name": "NotReleased",
+  "inputs": []
+ },
+ {
+  "type": "error",
   "name": "NotYetUnlocked",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "NothingToWithdraw",
   "inputs": []
  },
  {
@@ -226,12 +256,32 @@
  },
  {
   "type": "error",
+  "name": "SafeERC20FailedOperation",
+  "inputs": [
+   {
+    "type": "address",
+    "name": "token"
+   }
+  ]
+ },
+ {
+  "type": "error",
   "name": "ShareAlreadyReleased",
   "inputs": []
  },
  {
   "type": "error",
   "name": "StaleProof",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "TransferFailed",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "UnexpectedValue",
   "inputs": []
  },
  {
@@ -247,6 +297,21 @@
  {
   "type": "error",
   "name": "VaultNotFrozen",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "WrongAssetKind",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "WrongValue",
+  "inputs": []
+ },
+ {
+  "type": "error",
+  "name": "ZeroAmount",
   "inputs": []
  },
  {
@@ -431,6 +496,92 @@
    {
     "type": "uint8",
     "name": "rejections",
+    "indexed": false
+   }
+  ]
+ },
+ {
+  "type": "event",
+  "anonymous": false,
+  "name": "CryptoClaimed",
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "assetId",
+    "indexed": true
+   },
+   {
+    "type": "address",
+    "name": "beneficiary",
+    "indexed": true
+   },
+   {
+    "type": "address",
+    "name": "token",
+    "indexed": true
+   },
+   {
+    "type": "uint256",
+    "name": "amount",
+    "indexed": false
+   }
+  ]
+ },
+ {
+  "type": "event",
+  "anonymous": false,
+  "name": "CryptoDeposited",
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "assetId",
+    "indexed": true
+   },
+   {
+    "type": "address",
+    "name": "token",
+    "indexed": true
+   },
+   {
+    "type": "uint256",
+    "name": "amount",
+    "indexed": false
+   },
+   {
+    "type": "uint256",
+    "name": "balance",
+    "indexed": false
+   }
+  ]
+ },
+ {
+  "type": "event",
+  "anonymous": false,
+  "name": "CryptoWithdrawn",
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "assetId",
+    "indexed": true
+   },
+   {
+    "type": "address",
+    "name": "to",
+    "indexed": true
+   },
+   {
+    "type": "address",
+    "name": "token",
+    "indexed": true
+   },
+   {
+    "type": "uint256",
+    "name": "amount",
+    "indexed": false
+   },
+   {
+    "type": "uint256",
+    "name": "balance",
     "indexed": false
    }
   ]
@@ -692,6 +843,71 @@
    {
     "type": "bytes",
     "name": "ownerWrappedKey"
+   },
+   {
+    "type": "tuple",
+    "name": "policy",
+    "components": [
+     {
+      "type": "uint8",
+      "name": "requiredApprovals"
+     },
+     {
+      "type": "uint64",
+      "name": "challengePeriod"
+     },
+     {
+      "type": "uint64",
+      "name": "minInactivity"
+     },
+     {
+      "type": "uint64",
+      "name": "unlockAfter"
+     },
+     {
+      "type": "uint8",
+      "name": "evidenceType"
+     },
+     {
+      "type": "uint64",
+      "name": "attestationDeadline"
+     },
+     {
+      "type": "bool",
+      "name": "requireBeneficiaryZK"
+     },
+     {
+      "type": "bool",
+      "name": "requireAge18"
+     }
+    ]
+   }
+  ],
+  "outputs": [
+   {
+    "type": "uint256",
+    "name": "id"
+   }
+  ]
+ },
+ {
+  "type": "function",
+  "name": "addCryptoAsset",
+  "constant": false,
+  "stateMutability": "payable",
+  "payable": true,
+  "inputs": [
+   {
+    "type": "address",
+    "name": "beneficiary"
+   },
+   {
+    "type": "address",
+    "name": "token"
+   },
+   {
+    "type": "uint256",
+    "name": "amount"
    },
    {
     "type": "tuple",
@@ -1063,6 +1279,18 @@
      {
       "type": "bool",
       "name": "released"
+     },
+     {
+      "type": "uint8",
+      "name": "kind"
+     },
+     {
+      "type": "address",
+      "name": "token"
+     },
+     {
+      "type": "uint256",
+      "name": "balance"
      }
     ]
    }
@@ -1408,6 +1636,23 @@
  },
  {
   "type": "function",
+  "name": "ownerWithdraw",
+  "constant": false,
+  "payable": false,
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "assetId"
+   },
+   {
+    "type": "uint256",
+    "name": "amount"
+   }
+  ],
+  "outputs": []
+ },
+ {
+  "type": "function",
   "name": "panicFreeze",
   "constant": false,
   "payable": false,
@@ -1536,6 +1781,24 @@
  },
  {
   "type": "function",
+  "name": "topUp",
+  "constant": false,
+  "stateMutability": "payable",
+  "payable": true,
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "assetId"
+   },
+   {
+    "type": "uint256",
+    "name": "amount"
+   }
+  ],
+  "outputs": []
+ },
+ {
+  "type": "function",
   "name": "unfreeze",
   "constant": false,
   "payable": false,
@@ -1604,6 +1867,19 @@
       "name": "groth16Proof"
      }
     ]
+   }
+  ],
+  "outputs": []
+ },
+ {
+  "type": "function",
+  "name": "withdraw",
+  "constant": false,
+  "payable": false,
+  "inputs": [
+   {
+    "type": "uint256",
+    "name": "assetId"
    }
   ],
   "outputs": []

@@ -5,6 +5,7 @@ cache/
 storage/
 
 contracts/deployments/localhost.json
+contracts/deployments/tokens/localhost.json
 .env
 contracts/fund.local.json
 backend/chain/deployments.json

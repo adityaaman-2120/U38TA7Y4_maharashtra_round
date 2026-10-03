@@ -2,17 +2,24 @@
 pragma solidity 0.8.24;
 
 import {ReentrancyGuard} from "@openzeppelin/contracts/utils/ReentrancyGuard.sol";
+import {IERC20} from "@openzeppelin/contracts/token/ERC20/IERC20.sol";
+import {SafeERC20} from "@openzeppelin/contracts/token/ERC20/utils/SafeERC20.sol";
 import {IAnonAadhaar} from "@anon-aadhaar/contracts/interfaces/IAnonAadhaar.sol";
 
 /// @title Heirloom v2 - trust-minimized digital inheritance
 /// @notice The chain holds only ciphertext pointers, hashes, public keys and ECIES-encrypted key shares.
 ///         No plaintext, no private keys, no PII.
-/// @dev Optional identity layer: Anon Aadhaar zero-knowledge proofs ("this person holds a valid Aadhaar", and optionally
+/// @dev Crypto assets: an asset can instead hold native currency or one ERC-20. The same policy and claim rules apply, but there is no
+///      key to release: finalizing a claim only makes the funds withdrawable, and the beneficiary pulls them with withdraw().
+///      Optional identity layer: Anon Aadhaar zero-knowledge proofs ("this person holds a valid Aadhaar", and optionally
 ///      "is over 18") bound to a per-app nullifier. Only the nullifier, a pseudonym that is the same for one person in
 ///      this app and unlinkable to their Aadhaar, is ever stored. No Aadhaar data, no date of birth.
 contract Heirloom is ReentrancyGuard {
+    using SafeERC20 for IERC20;
+
     // ------------------------------------------------------------------ types
 
+    enum AssetKind { Data, Crypto }
     enum ClaimStatus { None, Raised, Cancelled, Finalized, Rejected }
     enum EvidenceType { Death, Incapacity, Any }
     enum Response { None, Attested, Rejected }
@@ -60,6 +67,9 @@ contract Heirloom is ReentrancyGuard {
         uint32 sharesEpoch;
         uint256 activeClaim; // latest claim id, 0 = none
         bool released; // a claim was finalized; shares are no longer changeable
+        AssetKind kind;
+        address token; // Crypto only: address(0) = native currency, otherwise an ERC-20
+        uint256 balance; // Crypto only: what is locked in this asset (credited with what actually arrived)
     }
 
     struct Claim {
@@ -131,6 +141,17 @@ contract Heirloom is ReentrancyGuard {
     error NoSuchClaim();
     error AssetAlreadyReleased();
     error AssetSharesStale();
+    error WrongAssetKind();
+    error ZeroAmount();
+    error InvalidToken();
+    error WrongValue();
+    error UnexpectedValue();
+    error ClaimActive();
+    error NotReleased();
+    error NothingToWithdraw();
+    error EmptyAsset();
+    error InsufficientBalance();
+    error TransferFailed();
     error EvidenceTypeMismatch();
     error NotInactiveLongEnough();
     error ClaimAlreadyActive();
@@ -169,6 +190,12 @@ contract Heirloom is ReentrancyGuard {
     event VaultUnfrozen(address indexed owner);
     event AssetAdded(uint256 indexed assetId, address indexed owner, address indexed beneficiary, string storageId, bytes32 contentHash);
     event AssetSharesUpdated(uint256 indexed assetId, address indexed owner, uint32 epoch);
+    /// @notice A crypto asset received funds (its first deposit, and every top-up). `amount` is what actually arrived.
+    event CryptoDeposited(uint256 indexed assetId, address indexed token, uint256 amount, uint256 balance);
+    /// @notice The owner took funds back out before any claim. `balance` is what remains locked.
+    event CryptoWithdrawn(uint256 indexed assetId, address indexed to, address indexed token, uint256 amount, uint256 balance);
+    /// @notice The beneficiary pulled the funds after the claim was finalized.
+    event CryptoClaimed(uint256 indexed assetId, address indexed beneficiary, address indexed token, uint256 amount);
     event ClaimRaised(
         uint256 indexed claimId,
         uint256 indexed assetId,
@@ -296,12 +323,84 @@ contract Heirloom is ReentrancyGuard {
         emit AssetAdded(id, msg.sender, beneficiary, storageId, contentHash);
     }
 
+    // ------------------------------------------------------------------ crypto assets
+
+    /// @notice Creates a crypto asset holding native currency (token = address(0), send `amount` as msg.value) or an ERC-20
+    ///         (approve this contract first). It follows the same policy and claim rules as any asset, but carries no encrypted
+    ///         data: a finalized claim makes the funds withdrawable by the beneficiary.
+    function addCryptoAsset(address beneficiary, address token, uint256 amount, Policy calldata policy)
+        external
+        payable
+        nonReentrant
+        returns (uint256 id)
+    {
+        Vault storage v = _ownerVault();
+        if (beneficiary == address(0) || beneficiary == msg.sender) revert InvalidBeneficiary();
+        if (amount == 0) revert ZeroAmount();
+        _checkPolicy(v, policy);
+        _checkIdentityPolicy(beneficiary, policy);
+
+        id = assets.length;
+        Asset storage a = assets.push();
+        a.id = id;
+        a.owner = msg.sender;
+        a.beneficiary = beneficiary;
+        a.policy = policy;
+        a.sharesEpoch = v.epoch;
+        a.kind = AssetKind.Crypto;
+        a.token = token;
+        ownerAssets[msg.sender].push(id);
+        beneficiaryAssets[beneficiary].push(id);
+        emit AssetAdded(id, msg.sender, beneficiary, "", bytes32(0));
+
+        uint256 received = _pull(token, amount); // the only external call that can move value in
+        if (received == 0) revert ZeroAmount();
+        a.balance = received;
+        emit CryptoDeposited(id, token, received, received);
+    }
+
+    /// @notice Adds funds (the same token) to a crypto asset. Not while a claim is open and not after release.
+    function topUp(uint256 assetId, uint256 amount) external payable nonReentrant {
+        Asset storage a = _ownerCryptoAsset(assetId);
+        _requireUnclaimed(a);
+        if (amount == 0) revert ZeroAmount();
+        uint256 received = _pull(a.token, amount);
+        if (received == 0) revert ZeroAmount();
+        a.balance += received;
+        emit CryptoDeposited(assetId, a.token, received, a.balance);
+    }
+
+    /// @notice Takes funds back out. Not while a claim is open (cancel it first) and not after release.
+    function ownerWithdraw(uint256 assetId, uint256 amount) external nonReentrant {
+        Asset storage a = _ownerCryptoAsset(assetId);
+        _requireUnclaimed(a);
+        if (amount == 0) revert ZeroAmount();
+        if (amount > a.balance) revert InsufficientBalance();
+        a.balance -= amount; // effects before the transfer
+        _send(a.token, msg.sender, amount);
+        emit CryptoWithdrawn(assetId, msg.sender, a.token, amount, a.balance);
+    }
+
+    /// @notice The beneficiary pulls everything locked in the asset once a claim on it has been finalized.
+    function withdraw(uint256 assetId) external nonReentrant {
+        Asset storage a = _asset(assetId);
+        if (a.kind != AssetKind.Crypto) revert WrongAssetKind();
+        if (msg.sender != a.beneficiary) revert NotBeneficiary();
+        if (!a.released) revert NotReleased();
+        uint256 amount = a.balance;
+        if (amount == 0) revert NothingToWithdraw();
+        a.balance = 0; // effects before the transfer: a reentrant call finds nothing left
+        _send(a.token, msg.sender, amount);
+        emit CryptoClaimed(assetId, msg.sender, a.token, amount);
+    }
+
     /// @notice Re-shares an asset to the current guardian set (e.g. after rotateGuardians). Counts as an owner
     ///         heartbeat. Not allowed once a claim on the asset has been finalized.
     function updateAssetShares(uint256 assetId, bytes[] calldata encShares, bytes calldata ownerWrappedKey) external nonReentrant {
         Vault storage v = _ownerVault();
         Asset storage a = _asset(assetId);
         if (a.owner != msg.sender) revert NotOwner();
+        if (a.kind != AssetKind.Data) revert WrongAssetKind(); // crypto assets have no shares
         if (a.released) revert AssetAlreadyReleased();
         if (ownerWrappedKey.length == 0) revert EmptyField();
         _checkShares(v, encShares);
@@ -324,7 +423,11 @@ contract Heirloom is ReentrancyGuard {
         if (a.released) revert AssetAlreadyReleased();
         Vault storage v = vaults[a.owner];
         if (v.frozen) revert VaultFrozen();
-        if (a.sharesEpoch != v.epoch) revert AssetSharesStale();
+        if (a.kind == AssetKind.Data) {
+            if (a.sharesEpoch != v.epoch) revert AssetSharesStale();
+        } else if (a.balance == 0) {
+            revert EmptyAsset(); // nothing to inherit: a claim would only be noise
+        }
         if (evidenceType == EvidenceType.Any) revert EvidenceTypeMismatch();
         if (a.policy.evidenceType != EvidenceType.Any && a.policy.evidenceType != evidenceType) revert EvidenceTypeMismatch();
         if (evidenceHash == bytes32(0) || bytes(evidenceStorageId).length == 0) revert EmptyField();
@@ -434,6 +537,7 @@ contract Heirloom is ReentrancyGuard {
     function submitShare(uint256 claimId, bytes calldata reEncryptedShare) external nonReentrant {
         Claim storage c = _claim(claimId);
         if (c.status != ClaimStatus.Finalized) revert ClaimNotFinalized();
+        if (assets[c.assetId].kind != AssetKind.Data) revert WrongAssetKind(); // crypto has no share to release
         uint256 idx = _guardianIndex(c, msg.sender);
         if (reEncryptedShare.length == 0) revert EmptyField();
         if (releasedShares[claimId][idx].length != 0) revert ShareAlreadyReleased();
@@ -577,6 +681,43 @@ contract Heirloom is ReentrancyGuard {
     function _ownerVault() private view returns (Vault storage v) {
         if (!hasVault[msg.sender]) revert NoVault();
         v = vaults[msg.sender];
+    }
+
+    function _ownerCryptoAsset(uint256 assetId) private view returns (Asset storage a) {
+        a = _asset(assetId);
+        if (a.owner != msg.sender) revert NotOwner();
+        if (a.kind != AssetKind.Crypto) revert WrongAssetKind();
+    }
+
+    /// @dev Funds can only be moved by the owner while nobody has a claim on them. "A claim is open" means status Raised,
+    ///      even if a later check-in has voided it: the owner cancels it explicitly, which is on the record.
+    function _requireUnclaimed(Asset storage a) private view {
+        if (a.released) revert AssetAlreadyReleased();
+        if (a.activeClaim != 0 && claims[a.activeClaim].status == ClaimStatus.Raised) revert ClaimActive();
+    }
+
+    /// @dev Takes `amount` from the caller. Native: it must equal msg.value. ERC-20: transferred in, and what is credited is
+    ///      what actually arrived, so fee-on-transfer tokens cannot make the books exceed the real balance.
+    function _pull(address token, uint256 amount) private returns (uint256 received) {
+        if (token == address(0)) {
+            if (msg.value != amount) revert WrongValue();
+            return amount;
+        }
+        if (msg.value != 0) revert UnexpectedValue();
+        if (token.code.length == 0) revert InvalidToken();
+        IERC20 t = IERC20(token);
+        uint256 before = t.balanceOf(address(this));
+        t.safeTransferFrom(msg.sender, address(this), amount);
+        received = t.balanceOf(address(this)) - before;
+    }
+
+    function _send(address token, address to, uint256 amount) private {
+        if (token == address(0)) {
+            (bool ok,) = payable(to).call{value: amount}("");
+            if (!ok) revert TransferFailed();
+        } else {
+            IERC20(token).safeTransfer(to, amount);
+        }
     }
 
     function _asset(uint256 assetId) private view returns (Asset storage) {

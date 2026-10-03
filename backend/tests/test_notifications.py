@@ -98,6 +98,21 @@ class EventNotificationTests(TestCase):
         self.assertIn("release your share", g.body)
         self.assertFalse(Notification.objects.get(user=self.users["b"]).urgent)
 
+    def test_finalizing_a_crypto_asset_asks_the_beneficiary_to_withdraw_and_guardians_for_nothing(self):
+        process_pending_events()
+        Notification.objects.all().delete()
+        mail.outbox.clear()
+        self.chain.emit("CryptoDeposited", {"assetId": 0, "token": "0x" + "00" * 20, "amount": 5, "balance": 5}, 6, self.o)
+        self.run_event("ClaimFinalized", {"claimId": 1, "by": self.b}, 7, self.b)
+        g = Notification.objects.get(user=self.users["g1"])
+        self.assertFalse(g.urgent)
+        self.assertNotIn("release your share", g.body)
+        self.assertIn("no share to release", g.body)
+        b = Notification.objects.get(user=self.users["b"])
+        self.assertTrue(b.urgent)
+        self.assertIn("Withdraw", b.body)
+        self.assertNotIn("decrypt", b.body)
+
     def test_share_released_counts_shares(self):
         process_pending_events()
         Notification.objects.all().delete()

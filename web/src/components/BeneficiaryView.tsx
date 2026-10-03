@@ -13,6 +13,7 @@ import { Letter } from "./Letter";
 import { ZkProofPanel } from "./ZkProofPanel";
 import { NO_PROOF, type ZkProof } from "@/lib/zk/proof";
 import { useKey } from "./KeyProvider";
+import { AmountBadge, BeneficiaryCryptoPanel } from "./CryptoPanels";
 
 type Row = { asset: Asset; vault: Vault; bundle: ClaimBundle | null };
 
@@ -32,17 +33,17 @@ export default function BeneficiaryView() {
 
   const rows = [...(list.data ?? [])].reverse();
   const openClaims = rows.filter((r) => r.bundle && claimState(r.bundle).open).length;
-  const ready = rows.filter((r) => r.bundle?.claim.status === 3 && r.bundle.released.filter((x) => x !== "0x").length >= r.vault.threshold).length;
+  const ready = rows.filter((r) => r.asset.kind === "data" && r.bundle?.claim.status === 3 && r.bundle.released.filter((x) => x !== "0x").length >= r.vault.threshold).length;
 
   return (
     <div className="space-y-4">
       <StatGrid>
         <Stat label="Reserved for you" value={list.isLoading ? "…" : rows.length} />
         <Stat label="Open claims" value={list.isLoading ? "…" : openClaims} tone={openClaims ? "warn" : "info"} />
-        <Stat label="Ready to decrypt" value={list.isLoading ? "…" : ready} tone={ready ? "good" : "info"} />
+        <Stat label="Ready to open" value={list.isLoading ? "…" : ready + rows.filter((r) => r.asset.kind === "crypto" && r.asset.released && r.asset.balance > 0n).length} tone={ready ? "good" : "info"} />
       </StatGrid>
-      <h2 className="text-lg font-semibold text-ink">Files reserved for you</h2>
-      <p className="text-xs text-faint">You can see that a file exists, never what it contains, until the guardians release it.</p>
+      <h2 className="text-lg font-semibold text-ink">Reserved for you</h2>
+      <p className="text-xs text-faint">You can see that a file exists, never what it contains, until the guardians release it. Funds show their amount, which is public on the blockchain.</p>
       {list.isLoading ? <ListSkeleton /> : list.isError ? <p className="text-sm text-bad">Could not load your files. Retrying…</p> : rows.length === 0 ? (
         <EmptyState title="Nothing is reserved for this address" hint="When someone reserves a file for you, it appears here. Make sure you have registered your encryption key and shared your address with them." />
       ) : rows.map((r) => <AssetRow key={r.asset.id} row={r} />)}
@@ -75,7 +76,7 @@ function AssetRow({ row }: { row: Row }) {
   const st = bundle ? claimState(bundle) : null;
   const canRaise = !asset.released && (!bundle || (!st!.open && bundle.claim.status !== 3));
   const availableAt = vault.lastHeartbeat + Math.max(p.minInactivity, vault.heartbeatInterval);
-  const stale = asset.sharesEpoch !== vault.epoch;
+  const stale = asset.kind === "data" && asset.sharesEpoch !== vault.epoch;
   const tooBig = file ? file.size * 1.4 > MAX_UPLOAD_BYTES : false;
 
   const guard = async (fn: () => Promise<void>) => {
@@ -160,15 +161,15 @@ function AssetRow({ row }: { row: Row }) {
     <div className="space-y-2 rounded-lg border border-line p-3 text-sm text-ink-2" data-testid={`asset-${asset.id}`}>
       <div className="flex flex-wrap items-center gap-2">
         <b>Asset #{asset.id}</b> from {shortAddr(asset.owner)}
-        <Badge tone="info">Encrypted</Badge>
+        {asset.kind === "crypto" ? <AmountBadge asset={asset} /> : <Badge tone="info">Encrypted</Badge>}
         {vault.frozen && <Badge tone="warn">Vault frozen</Badge>}
       </div>
-      <p className="text-xs text-muted">ciphertext {shortHash(asset.storageId, 6)} · hash {shortHash(asset.contentHash, 6)}</p>
+      {asset.kind === "data" ? <p className="text-xs text-muted">ciphertext {shortHash(asset.storageId, 6)} · hash {shortHash(asset.contentHash, 6)}</p> : <BeneficiaryCryptoPanel asset={asset} bundle={bundle} />}
 
       {bundle && (
         <ClaimInfo bundle={bundle}>
           {st!.open && <Btn disabled={busy || zk !== null} data-testid="finalize" onClick={finalize}>{p.requireAge18 ? "Finalize (proof of age)" : "Finalize"}</Btn>}
-          {bundle.claim.status === 3 && (
+          {bundle.claim.status === 3 && asset.kind === "data" && (
             <div className="w-full space-y-1">
               <p className="text-xs text-muted">Shares released by guardians: {released} / {vault.threshold} needed</p>
               <Btn disabled={busy || released < vault.threshold} data-testid="decrypt" onClick={decrypt}>{busy && progress ? progress : "Decrypt & download"}</Btn>

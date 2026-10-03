@@ -15,6 +15,11 @@ def asset_added(ev: ChainEvent) -> ChainEvent | None:
     return scope(ev.chain_id, ev.address).filter(event_name="AssetAdded", asset_id=ev.asset_id).first()
 
 
+def is_crypto(chain_id: int, address: str, asset_id: int | None) -> bool:
+    """A crypto asset (funds, not a file) is recognisable by its first deposit event."""
+    return asset_id is not None and scope(chain_id, address).filter(event_name="CryptoDeposited", asset_id=asset_id).exists()
+
+
 def claim_raised(chain_id: int, address: str, claim_id: int) -> ChainEvent | None:
     return scope(chain_id, address).filter(event_name="ClaimRaised", claim_id=claim_id).first()
 

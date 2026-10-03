@@ -22,7 +22,7 @@ def _plural(n: int, word: str) -> str:
     return f"{n} {word}{'' if n == 1 else 's'}"
 
 
-def _messages(ev: ChainEvent, names, claim_no: int | None, asset_no: int | None, count: int) -> dict[str, Message]:
+def _messages(ev: ChainEvent, names, claim_no: int | None, asset_no: int | None, count: int, crypto: bool = False) -> dict[str, Message]:
     """Role -> message for this event. Roles are resolved to addresses by `_audience`."""
     a = ev.args
     c, s = f"#{claim_no}", f"#{asset_no}"
@@ -60,6 +60,14 @@ def _messages(ev: ChainEvent, names, claim_no: int | None, asset_no: int | None,
         text = f"The owner cancelled claim {c} on asset {s}."
         return {"claimant": Message("claim_cancelled", "The owner cancelled your claim", text, "beneficiary"),
                 "guardian": Message("claim_cancelled", "The claim was cancelled by the owner", text, "guardian")}
+    if name == "ClaimFinalized" and crypto:
+        # Funds have no key to release: finalizing is the end of the guardians' part, and the beneficiary pulls the money.
+        return {
+            "claimant": Message("claim_finalized_beneficiary", "Your claim was finalized: withdraw your funds",
+                f"Claim {c} on asset {s} was finalized. Open Heirloom and press Withdraw to receive the funds.", "beneficiary", True),
+            "guardian": Message("claim_finalized_guardian", "A claim was finalized",
+                f"Claim {c} on asset {s} was finalized. This asset holds funds, so there is no share to release; nothing more is needed from you.", "guardian"),
+        }
     if name == "ClaimFinalized":
         return {
             "claimant": Message("claim_finalized_beneficiary", "Your claim was finalized",
@@ -99,7 +107,7 @@ def create_for_event(ev: ChainEvent) -> list[Notification]:
     def names(addr: str) -> str:
         return derive.display_name(addr, users) if addr else "Someone"
 
-    messages = _messages(ev, names, ev.claim_id, ev.asset_id, count)
+    messages = _messages(ev, names, ev.claim_id, ev.asset_id, count, crypto=derive.is_crypto(ev.chain_id, ev.address, ev.asset_id))
 
     created = []
     for role, msg in messages.items():

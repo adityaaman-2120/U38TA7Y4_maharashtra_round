@@ -22,6 +22,9 @@ export const EVENT_LABELS: Record<string, { label: string; tone: Tone }> = {
   ClaimCancelled: { label: "Claim cancelled", tone: "bad" },
   ClaimFinalized: { label: "Claim finalized", tone: "good" },
   ShareReleased: { label: "Share released", tone: "info" },
+  CryptoDeposited: { label: "Funds deposited", tone: "info" },
+  CryptoWithdrawn: { label: "Owner withdrew funds", tone: "warn" },
+  CryptoClaimed: { label: "Funds withdrawn by beneficiary", tone: "good" },
 };
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
@@ -59,6 +62,8 @@ export function summarize(e: HeirloomEvent, me?: string, fmt: Formatters = SHORT
     const s = String(v);
     return me && s.toLowerCase() === me.toLowerCase() ? "you" : fmt.addr(s);
   };
+  // Token symbols are not in the event; show the raw token address (or the native currency) with the amount in base units.
+  const money = (amount: unknown, token: unknown) => (/^0x0{40}$/i.test(String(token)) ? `${amount} wei of native currency` : `${amount} units of token ${fmt.addr(String(token))}`);
   switch (e.eventName) {
     case "IdentityVerified": return `${who(a.account)} verified an identity with a zero-knowledge proof (pseudonym ${fmt.hash(String('0x' + BigInt(String(a.nullifier)).toString(16)), 4)})`;
     case "EncryptionKeyRegistered": return `${who(a.account)} registered an encryption key`;
@@ -77,6 +82,9 @@ export function summarize(e: HeirloomEvent, me?: string, fmt: Formatters = SHORT
     case "ClaimCancelled": return `${who(a.owner)} cancelled claim #${a.claimId}`;
     case "ClaimFinalized": return `Claim #${a.claimId} was finalized by ${who(a.by)}; guardians can now release shares`;
     case "ShareReleased": return `${who(a.guardian)} released their share for claim #${a.claimId} (guardian ${Number(a.guardianIndex) + 1})`;
+    case "CryptoDeposited": return `${money(a.amount, a.token)} locked in asset #${a.assetId} (${money(a.balance, a.token)} now held)`;
+    case "CryptoWithdrawn": return `${who(a.to)} took ${money(a.amount, a.token)} back out of asset #${a.assetId} (${money(a.balance, a.token)} remains)`;
+    case "CryptoClaimed": return `${who(a.beneficiary)} withdrew ${money(a.amount, a.token)} from asset #${a.assetId}`;
     default: return e.eventName;
   }
 }

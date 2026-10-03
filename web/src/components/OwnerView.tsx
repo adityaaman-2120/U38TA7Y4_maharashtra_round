@@ -18,6 +18,7 @@ import { useVerifiedMap } from "@/lib/identity";
 import { identityEnabled } from "@/lib/zk/config";
 import { VerifiedBadge } from "./VerifiedBadge";
 import { useKey } from "./KeyProvider";
+import { AmountBadge, CryptoFields, EMPTY_CRYPTO, OwnerCryptoControls, useCreateCrypto, useCryptoInput, type CryptoInput } from "./CryptoPanels";
 
 const MIN_SECONDS = 300;
 const PUBKEY_RE = /^0x04[0-9a-fA-F]{128}$/;
@@ -302,7 +303,10 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   const key = useKey();
   const { publicClient, deployment, chainId } = useHeirloom();
   const idOn = identityEnabled(chainId);
-  const [kind, setKind] = useState<"file" | "letter">("file");
+  const [kind, setKind] = useState<"file" | "letter" | "crypto">("file");
+  const [crypto, setCrypto] = useState<CryptoInput>(EMPTY_CRYPTO);
+  const cryptoIn = useCryptoInput(crypto);
+  const createCrypto = useCreateCrypto();
   const [pickedFile, setFile] = useState<File | null>(null);
   const [letterName, setLetterName] = useState("");
   const [letterText, setLetterText] = useState("");
@@ -323,13 +327,46 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   const identityOk = !(requireZK || requireAge) || benVer.isVerified(beneficiary);
   const now = useNow();
 
-  const file = kind === "file" ? pickedFile : letterText.trim() ? letterToFile(letterName, letterText) : null;
+  const file = kind === "crypto" ? null : kind === "file" ? pickedFile : letterText.trim() ? letterToFile(letterName, letterText) : null;
   const unlockAfter = unlock ? Math.floor(new Date(unlock).getTime() / 1000) : 0;
   const periodsOk = [challenge, inactivity, deadline].every((d) => secs(d.v, d.u) >= MIN_SECONDS);
   const tooBig = file ? file.size * 1.4 > MAX_UPLOAD_BYTES : false; // headroom for encryption overhead
-  const valid = Boolean(file) && !tooBig && status(beneficiary) === "ok" && beneficiary.toLowerCase() !== vault.owner.toLowerCase() && periodsOk && identityOk && (!unlock || unlockAfter > now);
+  const benReady = kind === "crypto" ? isAddress(beneficiary) : status(beneficiary) === "ok"; // funds need no encryption key
+  const valid = (kind === "crypto" ? cryptoIn.valid : Boolean(file) && !tooBig) && benReady && beneficiary.toLowerCase() !== vault.owner.toLowerCase() && periodsOk && identityOk && (!unlock || unlockAfter > now);
+
+  const policyArgs = () => ({
+    requiredApprovals: approvals,
+    challengePeriod: BigInt(secs(challenge.v, challenge.u)),
+    minInactivity: BigInt(secs(inactivity.v, inactivity.u)),
+    unlockAfter: BigInt(unlockAfter),
+    evidenceType: evidence,
+    attestationDeadline: BigInt(secs(deadline.v, deadline.u)),
+    requireBeneficiaryZK: requireZK,
+    requireAge18: requireAge,
+  });
+  const resetPolicyChoices = () => {
+    setBeneficiary("");
+    setRequireZK(false); // identity checks are a per-asset decision: never carry them over silently
+    setRequireAge(false);
+  };
+
+  const submitCrypto = async () => {
+    setBusy(true);
+    setError("");
+    try {
+      if (await createCrypto(beneficiary, cryptoIn, policyArgs())) {
+        setCrypto((c) => ({ ...c, amount: "" }));
+        resetPolicyChoices();
+      }
+    } catch (e) {
+      setError(humanError(e));
+    } finally {
+      setBusy(false);
+    }
+  };
 
   const submit = async () => {
+    if (kind === "crypto") return submitCrypto();
     if (!file || !publicClient || !deployment) return;
     setBusy(true);
     setError("");
@@ -346,24 +383,12 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
       const encShares = shares.map((s, i) => toHex(eciesEncrypt(keys[i], s)));
       const ownerWrapped = toHex(eciesEncrypt(key.publicKey, dek));
       setProgress("Waiting for wallet…");
-      const policy = {
-        requiredApprovals: approvals,
-        challengePeriod: BigInt(secs(challenge.v, challenge.u)),
-        minInactivity: BigInt(secs(inactivity.v, inactivity.u)),
-        unlockAfter: BigInt(unlockAfter),
-        evidenceType: evidence,
-        attestationDeadline: BigInt(secs(deadline.v, deadline.u)),
-        requireBeneficiaryZK: requireZK,
-        requireAge18: requireAge,
-      };
-      const ok = await send("Add asset", "addAsset", [beneficiary, cid, plaintextHash, encShares, ownerWrapped, policy]);
+      const ok = await send("Add asset", "addAsset", [beneficiary, cid, plaintextHash, encShares, ownerWrapped, policyArgs()]);
       if (ok) {
         setFile(null);
         setLetterText("");
         setLetterName("");
-        setBeneficiary("");
-        setRequireZK(false); // identity checks are a per-file decision: never carry them over silently
-        setRequireAge(false);
+        resetPolicyChoices();
       }
     } catch (e) {
       setError(humanError(e));
@@ -376,14 +401,16 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   return (
     <Card title="Reserve something for a beneficiary">
       <div className="inline-flex rounded-lg border border-line-strong bg-sunken p-0.5 text-sm" role="tablist" aria-label="What to reserve">
-        {(["file", "letter"] as const).map((k) => (
+        {(["file", "letter", "crypto"] as const).map((k) => (
           <button key={k} role="tab" aria-selected={kind === k} onClick={() => setKind(k)} data-testid={`kind-${k}`}
             className={`rounded-md px-3 py-1.5 font-medium ${kind === k ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
-            {k === "file" ? "A file" : "A final letter"}
+            {k === "file" ? "A file" : k === "letter" ? "A final letter" : "Crypto"}
           </button>
         ))}
       </div>
-      {kind === "file" ? (
+      {kind === "crypto" ? (
+        <CryptoFields input={crypto} onChange={setCrypto} />
+      ) : kind === "file" ? (
         <Label text="File (encrypted in your browser before upload, max ~17 MB)">
           <input type="file" data-testid="asset-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
         </Label>
@@ -400,7 +427,7 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
       {!beneficiaries.isLoading && benPeople.length === 0 && (
         <NoPeople message="You have no accepted beneficiaries yet. Invite the person by email; once they accept, you can reserve files for them." onGoPeople={onGoPeople} />
       )}
-      <Label text="Beneficiary" hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? "You cannot be your own beneficiary" : STATUS_TEXT[status(beneficiary)]}>
+      <Label text="Beneficiary" hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? "You cannot be your own beneficiary" : kind === "crypto" ? (isAddress(beneficiary) ? undefined : STATUS_TEXT.invalid) : STATUS_TEXT[status(beneficiary)]}>
         <PersonSelect value={beneficiary} people={benPeople} placeholder="Choose a beneficiary…" testId="beneficiary" onChange={setBeneficiary} verified={benVer.isVerified} />
       </Label>
       {idOn && (
@@ -444,7 +471,7 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
         </Label>
       </div>
       {!periodsOk && <p className="text-xs text-bad">Every period must be at least 5 minutes.</p>}
-      <Btn disabled={!valid || busy} onClick={submit} data-testid="add-asset">{busy ? progress || "Working…" : kind === "letter" ? "Encrypt letter & reserve" : "Encrypt & reserve"}</Btn>
+      <Btn disabled={!valid || busy} onClick={submit} data-testid="add-asset">{busy ? progress || "Working…" : kind === "crypto" ? "Lock funds & reserve" : kind === "letter" ? "Encrypt letter & reserve" : "Encrypt & reserve"}</Btn>
       {error && <p className="text-sm text-bad">{error}</p>}
     </Card>
   );
@@ -469,7 +496,7 @@ function OwnerStats({ vault }: { vault: import("@/lib/contract").Vault }) {
   const due = vault.lastHeartbeat + vault.heartbeatInterval;
   return (
     <StatGrid>
-      <Stat label="Reserved files" value={list.isLoading ? "…" : list.data?.length ?? 0} />
+      <Stat label="Reserved assets" value={list.isLoading ? "…" : list.data?.length ?? 0} />
       <Stat label="Open claims" value={list.isLoading ? "…" : open} tone={open ? "bad" : "good"} />
       <Stat label="Next check-in" value={now < due ? fmtDuration(due - now) : "Overdue"} tone={now < due ? "info" : "warn"} />
     </StatGrid>
@@ -522,7 +549,7 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   });
 
   return (
-    <Card title="Reserved files">
+    <Card title="Reserved assets">
       {list.isLoading && <ListSkeleton rows={2} />}
       {list.isError && <p className="text-sm text-bad">Could not load your files. Retrying…</p>}
       {list.data?.length === 0 && <EmptyState title="Nothing reserved yet" hint="Reserve a file above. It is encrypted in your browser and only your chosen beneficiary can ever open it." />}
@@ -530,21 +557,24 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
         <div key={asset.id} className="space-y-2 rounded-lg border border-line p-3 text-sm text-ink-2" data-testid={`asset-${asset.id}`}>
           <div className="flex flex-wrap items-center gap-2">
             <b>Asset #{asset.id}</b> → {shortAddr(asset.beneficiary)}
+            {asset.kind === "crypto" && <AmountBadge asset={asset} />}
             {asset.released && <Badge tone="good">Released</Badge>}
             <VerifiedBadge verified={benVer.isVerified(asset.beneficiary)} compact={!benVer.enabled} />
             {asset.policy.requireBeneficiaryZK && <Badge tone="info">Identity proof to claim</Badge>}
             {asset.policy.requireAge18 && <Badge tone="info">Over-18 proof to finalize</Badge>}
-            {!asset.released && asset.sharesEpoch !== vault.epoch && <Badge tone="warn">Needs re-share</Badge>}
+            {asset.kind === "data" && !asset.released && asset.sharesEpoch !== vault.epoch && <Badge tone="warn">Needs re-share</Badge>}
           </div>
           <p className="text-xs text-muted">
-            ciphertext {shortHash(asset.storageId, 6)} · hash {shortHash(asset.contentHash, 6)} · {asset.policy.requiredApprovals} approvals · challenge {fmtDuration(asset.policy.challengePeriod)} · inactivity {fmtDuration(asset.policy.minInactivity)}
+            {asset.kind === "data" ? `ciphertext ${shortHash(asset.storageId, 6)} · hash ${shortHash(asset.contentHash, 6)} · ` : "crypto · "}{asset.policy.requiredApprovals} approvals · challenge {fmtDuration(asset.policy.challengePeriod)} · inactivity {fmtDuration(asset.policy.minInactivity)}
           </p>
-          <div className="flex flex-wrap gap-2">
-            <Btn tone="ghost" disabled={busy} data-testid="open-mine" onClick={() => openMine(asset)}>Open my copy</Btn>
-            {!asset.released && asset.sharesEpoch !== vault.epoch && (
-              <Btn disabled={busy} data-testid="reshare" onClick={() => reshare(asset)}>Re-share to new guardians</Btn>
-            )}
-          </div>
+          {asset.kind === "crypto" ? <OwnerCryptoControls asset={asset} bundle={bundle} /> : (
+            <div className="flex flex-wrap gap-2">
+              <Btn tone="ghost" disabled={busy} data-testid="open-mine" onClick={() => openMine(asset)}>Open my copy</Btn>
+              {!asset.released && asset.sharesEpoch !== vault.epoch && (
+                <Btn disabled={busy} data-testid="reshare" onClick={() => reshare(asset)}>Re-share to new guardians</Btn>
+              )}
+            </div>
+          )}
           {note[asset.id] && <p className={`text-xs ${note[asset.id].ok ? "text-ok" : "text-bad"}`}>{note[asset.id].text}</p>}
           {letters[asset.id] && <Letter title={letters[asset.id].title} text={letters[asset.id].text} onClose={() => setLetters((l) => Object.fromEntries(Object.entries(l).filter(([k]) => Number(k) !== asset.id)))} />}
           {bundle && (

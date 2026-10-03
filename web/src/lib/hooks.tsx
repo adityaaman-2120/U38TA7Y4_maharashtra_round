@@ -2,7 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useMemo, useState, type ReactNode } from "react";
 import { useConnection, usePublicClient, useWalletClient } from "wagmi";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
-import type { Address, PublicClient } from "viem";
+import type { Abi, Address, PublicClient } from "viem";
 import { config } from "./wagmi";
 import { getDeployment, heirloomAbi, toAsset, toClaim, toVault, type Asset, type Claim, type Vault } from "./contract";
 import { fetchEvents } from "./logs";
@@ -68,14 +68,14 @@ export function useTx() {
   const toast = useToasts();
   const qc = useQueryClient();
   return useCallback(
-    async (label: string, functionName: string, args: unknown[] = []): Promise<boolean> => {
+    async (label: string, functionName: string, args: unknown[] = [], opts: { value?: bigint; to?: Address; abi?: Abi } = {}): Promise<boolean> => {
       if (!publicClient || !walletClient || !deployment || !address) {
         toast.push({ kind: "error", message: "Connect a wallet on a supported network first." });
         return false;
       }
       const id = toast.push({ kind: "pending", message: `${label}: confirm in your wallet…` });
       try {
-        const { request } = await publicClient.simulateContract({ account: address, address: deployment.address, abi: heirloomAbi, functionName, args } as never);
+        const { request } = await publicClient.simulateContract({ account: address, address: opts.to ?? deployment.address, abi: opts.abi ?? heirloomAbi, functionName, args, value: opts.value } as never);
         const hash = await walletClient.writeContract(request as never);
         toast.update(id, { message: `${label}: waiting for confirmation…`, hash, chainId });
         const receipt = await publicClient.waitForTransactionReceipt({ hash });

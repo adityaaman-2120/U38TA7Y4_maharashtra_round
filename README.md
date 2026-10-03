@@ -53,6 +53,15 @@ npm --prefix contracts run deploy:amoy
 ```
 Set `NEXT_PUBLIC_IPFS_GATEWAY` to a dedicated Pinata gateway for reliable downloads.
 
+### Test ERC-20 on Amoy (for trying crypto assets)
+`TestToken` (HTT) is a worthless ERC-20 with a public `faucet()` (1,000 HTT per wallet per hour). It is for test networks only; the script refuses anything else.
+```bash
+export AMOY_RPC_URL=...  DEPLOYER_PRIVATE_KEY=...      # never commit these
+npm --prefix contracts run deploy:token:amoy
+```
+The script writes `contracts/deployments/tokens/amoy.json` and regenerates `web/src/lib/contracts.ts`, so the Crypto tab offers HTT and a
+"Get 1,000 test tokens" button on that network. (Local `npm run dev` deploys one automatically.) Commit the `tokens/amoy.json` record so everyone uses the same token.
+
 ## Checks
 ```bash
 npm test                          # contract tests
@@ -136,6 +145,23 @@ A letter is just a file whose hidden name ends in `.letter.txt`, so nothing abou
 
 The content fingerprint stored on-chain is `SHA-256(salt || content)`, with the 32-byte random salt kept inside the encrypted file, so a short or guessable text
 cannot be confirmed by hashing guesses. The beneficiary recomputes it after decrypting ("Integrity verified"). The same applies to evidence.
+
+### Crypto assets
+Instead of a file, an asset can hold **native currency (MATIC/POL on Polygon) or any ERC-20**, locked in the Heirloom contract for a beneficiary.
+
+* **Same rules.** The asset carries the same policy (approvals, challenge period, inactivity, unlock time, evidence type, identity checks) and the same claim,
+  guardian-approval, fraud-flag and heartbeat rules as a file. There is nothing to encrypt, so there are no key shares: guardians only approve.
+* **Pull payments.** `finalizeClaim` only marks the asset released; it moves no money. The beneficiary then calls `withdraw(assetId)` and receives the funds
+  (checks-effects-interactions, plus `nonReentrant` on every function that moves value; ERC-20s go through OpenZeppelin `SafeERC20`).
+* **Owner control.** The owner can `topUp` or `ownerWithdraw` any time **while no claim is open**. While a claim is `Raised` both are blocked, even if a check-in
+  has since voided it: the owner must cancel the claim (an on-chain, auditable action) before moving funds. After release the funds belong to the beneficiary.
+* **Honest accounting.** The balance credited is what actually arrived, so fee-on-transfer tokens cannot make the books exceed the real balance. A claim on an
+  empty asset is refused. Events: `CryptoDeposited`, `CryptoWithdrawn`, `CryptoClaimed` (shown in the audit page and PDF).
+* **Privacy.** Unlike files, **amounts and token addresses are public on the blockchain**; the app says so where you create one. The beneficiary does not need a
+  registered encryption key to receive funds.
+
+Tests: `contracts/test/Crypto.test.js` (deposits, top-up, withdraw, blocked-during-claim cases, pull pattern, fee-on-transfer, identity policies, and
+reentrancy through a malicious token and through a malicious beneficiary and owner contract).
 
 ### Replacing guardians
 **Replace guardians** is one flow: it first opens every sealed file's key with the owner's encryption key (so a problem is found before anything changes

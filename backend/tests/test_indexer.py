@@ -124,7 +124,8 @@ class RealAbiDecodingTests(TestCase):
 
         client = Web3Client(replace(CFG, rpc_url="http://127.0.0.1:1"))
         names = {e["name"] for e in client.by_topic.values()}
-        self.assertEqual(len(names), 17)
+        self.assertEqual(len(names), 20)
+        self.assertTrue({"CryptoDeposited", "CryptoWithdrawn", "CryptoClaimed"} <= names)
         self.assertTrue({"VaultCreated", "ClaimRaised", "Attested", "ShareReleased", "FraudFlagged", "PanicFrozen", "IdentityVerified"} <= names)
 
         owner, guardians = addr(), [addr() for _ in range(3)]
@@ -140,6 +141,15 @@ class RealAbiDecodingTests(TestCase):
         self.assertEqual((ev.name, ev.block_number, ev.log_index), ("VaultCreated", 5, 3))
         self.assertEqual(ev.args, {"owner": owner, "guardians": guardians, "threshold": 2, "heartbeatInterval": 600, "requireVerifiedGuardians": True})
         self.assertEqual(ev.tx_hash, "0x" + "02" * 32)
+
+        # a crypto event decodes too, and carries the asset id the indexer files it under
+        token = addr()
+        topic = next(t for t, e in client.by_topic.items() if e["name"] == "CryptoDeposited")
+        log["topics"] = [HexBytes(topic), HexBytes((7).to_bytes(32, "big")), HexBytes("0x" + "00" * 12 + token[2:])]
+        log["data"] = HexBytes(encode(["uint256", "uint256"], [5, 12]))
+        with mock.patch.object(client.w3.eth, "get_logs", return_value=[log]):
+            (ev,) = client.events(5, 5)
+        self.assertEqual((ev.name, ev.args), ("CryptoDeposited", {"assetId": 7, "token": token, "amount": 5, "balance": 12}))
 
 
 class PolicyParsingTests(TestCase):
