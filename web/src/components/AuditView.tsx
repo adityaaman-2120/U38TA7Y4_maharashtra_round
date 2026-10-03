@@ -2,7 +2,8 @@
 import { useMemo, useState } from "react";
 import { useQuery } from "@tanstack/react-query";
 import type { PublicClient } from "viem";
-import { useEvents, useHeirloom } from "@/lib/hooks";
+import { useHeirloom } from "@/lib/hooks";
+import { useAuditEvents } from "@/lib/audit";
 import { explorerAddressUrl, explorerTxUrl } from "@/lib/wagmi";
 import { addressesOf, claimAssetMap, EVENT_LABELS, refsOf, summarize } from "@/lib/events";
 import { fmtTime, shortAddr, shortHash } from "@/lib/format";
@@ -26,8 +27,8 @@ async function loadMeta(client: PublicClient, chainId: number, events: { blockNu
 /** Audit trail built only from the contract's events. */
 export default function AuditView() {
   const { address, chainId, publicClient } = useHeirloom();
-  const events = useEvents();
-  const all = useMemo(() => [...(events.data ?? [])].reverse(), [events.data]);
+  const audit = useAuditEvents();
+  const all = audit.entries;
 
   const [type, setType] = useState("");
   const [assetId, setAssetId] = useState("");
@@ -38,9 +39,9 @@ export default function AuditView() {
 
   const meta = useQuery({
     queryKey: ["audit-meta", chainId, all.length],
-    enabled: Boolean(publicClient && chainId) && all.length > 0,
+    enabled: Boolean(publicClient && chainId) && audit.source === "chain" && all.length > 0, // the indexer already supplies time and sender
     queryFn: async () => {
-      await loadMeta(publicClient!, chainId!, all);
+      await loadMeta(publicClient!, chainId!, all.filter((e) => e.ts === undefined));
       return Date.now();
     },
   });
@@ -57,7 +58,7 @@ export default function AuditView() {
     if (assetId !== "" && refs.assetId !== Number(assetId)) return false;
     if (claimId !== "" && refs.claimId !== Number(claimId)) return false;
     if (actorFilter) {
-      const sender = txSenders.get(`${chainId}:${e.transactionHash}`);
+      const sender = e.actor ?? txSenders.get(`${chainId}:${e.transactionHash}`);
       if (sender !== actorFilter && !addressesOf(e).includes(actorFilter)) return false;
     }
     return true;
@@ -70,7 +71,10 @@ export default function AuditView() {
   return (
     <div className="space-y-4">
       <Card title="Audit trail" right={<span className="text-xs text-muted">{filtered.length} of {all.length} events</span>}>
-        <p className="text-sm text-muted">Every state change is an on-chain event. Nothing here is stored off-chain, and no file contents appear in it.</p>
+        <p className="text-sm text-muted">Every state change is an on-chain event, and no file contents appear in it.</p>
+        <p className="text-xs text-faint" data-testid="audit-source" data-source={audit.source}>
+          Source: <b>{audit.source === "indexer" ? "indexer" : "blockchain"}</b>. {audit.note}.
+        </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
           <Label text="Event">
             <Select value={type} onChange={(e) => { setType(e.target.value); setLimit(PAGE); }} data-testid="filter-type">
@@ -102,9 +106,9 @@ export default function AuditView() {
         </div>
       </Card>
 
-      {events.isLoading ? (
+      {audit.loading ? (
         <ListSkeleton rows={5} />
-      ) : events.isError ? (
+      ) : audit.failed ? (
         <Card title="Could not load events"><p className="text-sm text-bad">The network request failed. It will retry automatically.</p></Card>
       ) : all.length === 0 ? (
         <EmptyState title="No activity yet" hint="Events appear here as soon as someone registers a key or creates a vault." />
@@ -115,8 +119,8 @@ export default function AuditView() {
           {shown.map((e) => {
             const info = EVENT_LABELS[e.eventName] ?? { label: e.eventName, tone: "info" as const };
             const refs = refsOf(e, claimToAsset);
-            const ts = blockTimes.get(`${chainId}:${e.blockNumber}`);
-            const sender = txSenders.get(`${chainId}:${e.transactionHash}`);
+            const ts = e.ts ?? blockTimes.get(`${chainId}:${e.blockNumber}`);
+            const sender = e.actor ?? txSenders.get(`${chainId}:${e.transactionHash}`);
             const txUrl = chainId ? explorerTxUrl(chainId, e.transactionHash) : null;
             const senderUrl = chainId && sender ? explorerAddressUrl(chainId, sender) : null;
             return (

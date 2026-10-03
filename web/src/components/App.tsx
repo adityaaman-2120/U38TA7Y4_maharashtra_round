@@ -1,22 +1,38 @@
 "use client";
 import Link from "next/link";
-import { useState, useSyncExternalStore, type ReactNode } from "react";
+import { useEffect, useState, useSyncExternalStore, type ReactNode } from "react";
 import { useConnect, useConnectors, useDisconnect, useSwitchChain } from "wagmi";
 import { useHeirloom, useRoles } from "@/lib/hooks";
+import { authApi } from "@/lib/api";
 import { CHAIN_LABELS, config } from "@/lib/wagmi";
 import { getDeployment } from "@/lib/contract";
 import { shortAddr } from "@/lib/format";
 import { Btn, ListSkeleton } from "./ui";
 import { Wordmark } from "./Logo";
 import { KeyGate, useKey } from "./KeyProvider";
+import { SessionGate } from "./Session";
+import { NAVIGATE_EVENT, NotificationBell } from "./NotificationBell";
 import OwnerView from "./OwnerView";
+import PeopleView from "./PeopleView";
 import GuardianView from "./GuardianView";
 import BeneficiaryView from "./BeneficiaryView";
 import AuditView from "./AuditView";
 
-type View = "owner" | "guardian" | "beneficiary" | "audit";
+type View = "owner" | "people" | "guardian" | "beneficiary" | "audit";
 
 export default function App() {
+  return (
+    <Shell>
+      <Main />
+    </Shell>
+  );
+}
+
+/**
+ * Everything a signed-in user needs before any screen: wallet connected, supported network, Sign-In With Ethereum,
+ * profile, and an unlocked encryption key. `children` render only once all of that is in place.
+ */
+export function Shell({ children, prefillEmail, banner }: { children: ReactNode; prefillEmail?: string; banner?: ReactNode }) {
   // Wallet state only exists in the browser; render nothing on the server to avoid hydration mismatches.
   const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
   if (!mounted) return null;
@@ -24,7 +40,8 @@ export default function App() {
     <div className="min-h-screen">
       <Header />
       <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
-        <Gate />
+        {banner}
+        <Gate prefillEmail={prefillEmail}>{children}</Gate>
       </div>
     </div>
   );
@@ -33,6 +50,10 @@ export default function App() {
 function Header() {
   const { address, chainId, isConnected } = useHeirloom();
   const { mutate: disconnect } = useDisconnect();
+  const leave = async () => {
+    await authApi.logout().catch(() => {}); // end the server session too, not just the wallet connection
+    disconnect();
+  };
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-paper/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
@@ -44,7 +65,8 @@ function Header() {
               {chainId !== undefined && CHAIN_LABELS[chainId] ? CHAIN_LABELS[chainId] : `Chain ${chainId}`}
             </span>
             <span className="rounded-full border border-line-strong bg-surface px-3 py-1 font-mono text-xs text-ink-2" data-testid="account">{shortAddr(address)}</span>
-            <Btn tone="ghost" onClick={() => disconnect()}>Disconnect</Btn>
+            <NotificationBell />
+            <Btn tone="ghost" onClick={leave} data-testid="disconnect">Disconnect</Btn>
           </div>
         )}
       </div>
@@ -61,7 +83,7 @@ function Welcome({ children }: { children: ReactNode }) {
   );
 }
 
-function Gate() {
+function Gate({ children, prefillEmail }: { children: ReactNode; prefillEmail?: string }) {
   const { isConnected, supported, deployment, chainId } = useHeirloom();
   const connectors = useConnectors();
   const { mutate: connect, isPending, error } = useConnect();
@@ -72,7 +94,7 @@ function Gate() {
     return (
       <Welcome>
         <h1 className="font-display text-5xl leading-[1.05] text-ink">Connect your wallet to begin.</h1>
-        <p className="mt-4 text-ink-2">Your wallet is your identity. Everything you upload is encrypted here in your browser first, and your encryption key never leaves it.</p>
+        <p className="mt-4 text-ink-2">Your wallet is your identity. Everything you upload is encrypted here in your browser first, and your encryption key never leaves it unprotected.</p>
         <div className="mt-6 flex flex-wrap items-center gap-3">
           <Btn disabled={!injected || isPending} onClick={() => injected && connect({ connector: injected })} data-testid="connect" className="px-5 py-2.5">
             {isPending ? "Connecting…" : "Connect MetaMask"}
@@ -102,20 +124,27 @@ function Gate() {
   }
 
   return (
-    <KeyGate>
-      <Main />
-    </KeyGate>
+    <SessionGate prefillEmail={prefillEmail}>
+      <KeyGate>{children}</KeyGate>
+    </SessionGate>
   );
 }
 
-const NAV_LABEL: Record<View, string> = { owner: "My vault", guardian: "Guardian", beneficiary: "Inheritance", audit: "Audit" };
+const NAV_LABEL: Record<View, string> = { owner: "My vault", people: "People", guardian: "Guardian", beneficiary: "Inheritance", audit: "Audit" };
 
 function Main() {
   const roles = useRoles();
   const key = useKey();
   const [picked, setPicked] = useState<View | null>(null);
 
-  const available: View[] = ["owner", ...(roles.isGuardian ? (["guardian"] as const) : []), ...(roles.isBeneficiary ? (["beneficiary"] as const) : []), "audit"];
+  // The notification bell asks to open a section ("a claim needs your review" -> Guardian).
+  useEffect(() => {
+    const onNavigate = (e: Event) => setPicked((e as CustomEvent<View>).detail);
+    window.addEventListener(NAVIGATE_EVENT, onNavigate);
+    return () => window.removeEventListener(NAVIGATE_EVENT, onNavigate);
+  }, []);
+
+  const available: View[] = ["owner", "people", ...(roles.isGuardian ? (["guardian"] as const) : []), ...(roles.isBeneficiary ? (["beneficiary"] as const) : []), "audit"];
   const fallback: View = roles.isOwner ? "owner" : roles.isBeneficiary ? "beneficiary" : roles.isGuardian ? "guardian" : "owner";
   const view = picked && available.includes(picked) ? picked : fallback;
 
@@ -134,7 +163,12 @@ function Main() {
         </button>
       </nav>
       <main className="min-w-0 space-y-4">
-        {roles.loading ? <ListSkeleton rows={3} /> : view === "owner" ? <OwnerView /> : view === "guardian" ? <GuardianView /> : view === "beneficiary" ? <BeneficiaryView /> : <AuditView />}
+        {roles.loading ? <ListSkeleton rows={3} />
+          : view === "owner" ? <OwnerView onGoPeople={() => setPicked("people")} />
+          : view === "people" ? <PeopleView />
+          : view === "guardian" ? <GuardianView />
+          : view === "beneficiary" ? <BeneficiaryView />
+          : <AuditView />}
       </main>
     </div>
   );

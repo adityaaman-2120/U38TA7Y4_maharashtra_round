@@ -2,7 +2,7 @@
   "name": "contracts",
   "private": true,
   "scripts": {
-    "node": "hardhat node",
+    "node": "node scripts/node.js",
     "compile": "hardhat compile",
     "test": "hardhat test",
     "deploy:localhost": "hardhat run scripts/deploy.js --network localhost",

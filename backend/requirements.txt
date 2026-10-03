@@ -1,0 +1,13 @@
+Django>=5.2,<5.3
+djangorestframework>=3.16,<4
+PyJWT>=2.10,<3
+eth-account>=0.13,<1
+eth-utils>=5,<7
+psycopg[binary]>=3.2,<4
+redis>=5,<9
+django-redis>=5.4,<8
+dj-database-url>=2.3,<4
+django-cors-headers>=4.6,<5
+gunicorn>=23,<27
+celery>=5.4,<6
+web3>=7,<8

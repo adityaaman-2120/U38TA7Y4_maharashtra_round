@@ -1,10 +1,12 @@
 "use client";
-import { createContext, useCallback, useContext, useMemo, useState, type FormEvent, type ReactNode } from "react";
+import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
+import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Hex } from "viem";
+import { keyApi } from "@/lib/api";
 import { readers, useHeirloom, useRead, useTx } from "@/lib/hooks";
 import {
-  MIN_PASSWORD_LENGTH, clearBackedUp, createKeyBlob, downloadRecoveryFile, hasBackedUp, loadStoredBlob,
-  markBackedUp, parseKeyBlob, storeBlob, unlockKeyBlob, type KeyBlob,
+  MIN_PASSWORD_LENGTH, clearNeedsBackup, createKeyBlob, downloadRecoveryFile, loadLegacyBlob, needsBackup,
+  parseKeyBlob, removeLegacyBlob, setNeedsBackup, unlockKeyBlob, type KeyBlob,
 } from "@/lib/keystore";
 import { Btn, Card, Input } from "./ui";
 
@@ -12,6 +14,15 @@ type Status = "loading" | "setup" | "backup" | "register" | "import" | "locked" 
 type KeyApi = { publicKey: Hex; getSecret: () => Uint8Array; lock: () => void };
 
 const Ctx = createContext<KeyApi | null>(null);
+
+// The decrypted key is held in memory only, tagged with its account so switching accounts locks it. It lives above
+// the pages so client-side navigation (e.g. invite page -> dashboard) does not force another unlock.
+type Unlocked = { address: string; secret: Uint8Array } | null;
+const UnlockedCtx = createContext<{ unlocked: Unlocked; setUnlocked: (u: Unlocked) => void } | null>(null);
+export function UnlockedKeyProvider({ children }: { children: ReactNode }) {
+  const [unlocked, setUnlocked] = useState<Unlocked>(null);
+  return <UnlockedCtx.Provider value={{ unlocked, setUnlocked }}>{children}</UnlockedCtx.Provider>;
+}
 export const useKey = () => {
   const c = useContext(Ctx);
   if (!c) throw new Error("Encryption key is locked");
@@ -19,36 +30,51 @@ export const useKey = () => {
 };
 
 /**
- * Owns the user's encryption keypair lifecycle. The decrypted private key lives only in a ref (memory) for the
- * current session; children render only once it is unlocked.
+ * Owns the user's encryption keypair lifecycle. The password-sealed private key is stored on the server (opaque to
+ * it) and fetched on sign-in, so it follows the user across devices. The decrypted key exists only in memory.
  */
 export function KeyGate({ children }: { children: ReactNode }) {
   const { address, deployment } = useHeirloom();
   const send = useTx();
+  const qc = useQueryClient();
   const chainKey = useRead(["encKey"], (c, k) => readers.encryptionKey(c, k, address!), { enabled: Boolean(address) });
+  const server = useQuery({ queryKey: ["keyblob", address?.toLowerCase()], queryFn: keyApi.get, enabled: Boolean(address), staleTime: Infinity });
 
-  // The decrypted key lives only in memory, tagged with its account so a switch locks it automatically.
-  const [unlocked, setUnlocked] = useState<{ address: string; secret: Uint8Array } | null>(null);
+  const store = useContext(UnlockedCtx);
+  if (!store) throw new Error("UnlockedKeyProvider missing");
+  const { unlocked, setUnlocked } = store;
   const secret = unlocked && address && unlocked.address === address.toLowerCase() ? unlocked.secret : null;
-  const [version, setVersion] = useState(0); // bumps on any local key change
-  const bump = () => setVersion((v) => v + 1);
   const [error, setError] = useState("");
   const [busy, setBusy] = useState(false);
+  const [, bump] = useState(0);
 
-  const blob: KeyBlob | null = useMemo(() => (address ? loadStoredBlob(address) : null), [address, version]); // eslint-disable-line react-hooks/exhaustive-deps
+  const storeLocally = useCallback((blob: KeyBlob) => qc.setQueryData(["keyblob", blob.address.toLowerCase()], blob), [qc]);
+
+  // One-time migration of a key sealed by an earlier version of the app (kept only in this browser).
+  const migrating = useRef(false);
+  const legacy = address && server.data === null ? loadLegacyBlob(address) : null;
+  useEffect(() => {
+    if (!legacy || !address || migrating.current) return;
+    migrating.current = true;
+    keyApi.put(legacy)
+      .then(() => { removeLegacyBlob(address); storeLocally(legacy); })
+      .catch((e) => setError(e instanceof Error ? e.message : String(e)))
+      .finally(() => { migrating.current = false; });
+  }, [legacy, address, storeLocally]);
+
+  const blob: KeyBlob | null = server.data ?? null;
   const onchain = chainKey.data && chainKey.data !== "0x" ? chainKey.data.toLowerCase() : null;
-  const backedUp = address ? hasBackedUp(address) : false;
 
   let status: Status;
-  if (!address || chainKey.isLoading || !deployment) status = "loading";
+  if (!address || chainKey.isLoading || !deployment || server.isLoading || legacy) status = "loading";
   else if (!blob) status = onchain ? "import" : "setup";
   else if (onchain && blob.publicKey !== onchain) status = "import";
-  else if (!backedUp) status = "backup";
+  else if (needsBackup(address)) status = "backup";
   else if (!onchain) status = "register";
   else status = secret ? "unlocked" : "locked";
   const isMismatch = status === "import" && Boolean(blob);
 
-  const lock = useCallback(() => setUnlocked(null), []);
+  const lock = useCallback(() => setUnlocked(null), [setUnlocked]);
 
   const guard = async (fn: () => Promise<void>) => {
     setBusy(true);
@@ -68,25 +94,27 @@ export function KeyGate({ children }: { children: ReactNode }) {
 
   return (
     <div className="mx-auto max-w-lg">
-      {status === "loading" && <p className="text-muted">Loading your account…</p>}
+      {status === "loading" && (server.isError
+        ? <p className="text-bad">Could not load your key from the server: {(server.error as Error).message}</p>
+        : <p className="text-muted">Loading your account…</p>)}
 
       {status === "setup" && (
         <SetupForm busy={busy} error={error} onSubmit={(pw) => guard(async () => {
           const { blob: b, secret: s } = await createKeyBlob(address!, pw);
-          clearBackedUp(address!);
-          storeBlob(b);
+          await keyApi.put(b); // store first: if this fails nothing else has happened
+          setNeedsBackup(address!);
+          storeLocally(b);
           setUnlocked({ address: address!.toLowerCase(), secret: s });
-          bump();
         })} />
       )}
 
       {status === "backup" && blob && (
         <Card title="Download your recovery file">
           <p className="text-sm text-ink-2">
-            Your encryption key exists only in this browser. If you lose this browser data you can no longer decrypt anything, and nobody — including us — can recover it.
-            Save the recovery file somewhere safe. It is encrypted with your password.
+            Your encrypted key is stored with your account, protected by your encryption password. Keep a copy of the recovery file as well:
+            if you forget the password, or the service disappears, this file is the only other way back in. It is encrypted with your password too.
           </p>
-          <Btn data-testid="download-recovery" onClick={() => { downloadRecoveryFile(blob); markBackedUp(address!); bump(); }}>Download recovery file</Btn>
+          <Btn data-testid="download-recovery" onClick={() => { downloadRecoveryFile(blob); clearNeedsBackup(address!); bump((v) => v + 1); }}>Download recovery file</Btn>
         </Card>
       )}
 
@@ -100,7 +128,10 @@ export function KeyGate({ children }: { children: ReactNode }) {
         </Card>
       )}
 
-      {status === "import" && <ImportForm address={address!} onchain={onchain} mismatch={isMismatch} onImport={(b) => { storeBlob(b); markBackedUp(address!); bump(); }} />}
+      {status === "import" && (
+        <ImportForm address={address!} onchain={onchain} mismatch={isMismatch}
+          onImport={async (b) => { await keyApi.put(b); storeLocally(b); }} />
+      )}
 
       {status === "locked" && blob && (
         <UnlockForm busy={busy} error={error} onSubmit={(pw) => guard(async () => {
@@ -120,7 +151,8 @@ function SetupForm({ busy, error, onSubmit }: { busy: boolean; error: string; on
     <Card title="Set your encryption password">
       <form onSubmit={submit} className="space-y-3">
         <p className="text-sm text-ink-2">
-          This password protects your encryption key, which is generated in your browser. It is separate from your wallet and <b>cannot be reset</b>.
+          This password protects your encryption key, which is generated in your browser. It is separate from your wallet and <b>cannot be reset</b>:
+          we only ever store the key in encrypted form and never see the password.
         </p>
         <Input type="password" autoComplete="new-password" placeholder="Encryption password" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="pw" />
         <Input type="password" autoComplete="new-password" placeholder="Repeat password" value={pw2} onChange={(e) => setPw2(e.target.value)} data-testid="pw2" />
@@ -145,15 +177,16 @@ function UnlockForm({ busy, error, onSubmit }: { busy: boolean; error: string; o
   );
 }
 
-function ImportForm({ address, onchain, mismatch, onImport }: { address: string; onchain: string | null; mismatch: boolean; onImport: (b: KeyBlob) => void }) {
+function ImportForm({ address, onchain, mismatch, onImport }: { address: string; onchain: string | null; mismatch: boolean; onImport: (b: KeyBlob) => Promise<void> }) {
   const [error, setError] = useState("");
   const onFile = async (f: File | undefined) => {
     if (!f) return;
+    setError("");
     try {
       const b = parseKeyBlob(await f.text());
       if (b.address.toLowerCase() !== address.toLowerCase()) throw new Error("This recovery file belongs to a different account");
       if (onchain && b.publicKey.toLowerCase() !== onchain) throw new Error("This recovery file does not match the key registered on-chain");
-      onImport(b);
+      await onImport(b);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
@@ -162,8 +195,8 @@ function ImportForm({ address, onchain, mismatch, onImport }: { address: string;
     <Card title="Import your recovery file">
       <p className="text-sm text-ink-2">
         {mismatch
-          ? "The key stored in this browser does not match the key registered on-chain for this account. Import the correct recovery file."
-          : "An encryption key is already registered for this account, but it is not in this browser. Import your recovery file to continue."}
+          ? "The key stored for this account does not match the key registered on-chain. Import the correct recovery file."
+          : "An encryption key is already registered on-chain for this account, but it is not stored with your account. Import your recovery file to continue."}
       </p>
       <input type="file" accept="application/json,.json" data-testid="import-file" onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
       {error && <p className="text-sm text-bad">{error}</p>}

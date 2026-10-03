@@ -4,7 +4,10 @@
   "scripts": {
     "dev": "concurrently --kill-others-on-fail -n node,deploy,web \"npm --prefix contracts run node\" \"wait-on tcp:8545 && npm --prefix contracts run deploy:localhost\" \"npm --prefix web run dev\"",
     "install:all": "npm i && npm --prefix contracts i && npm --prefix web i",
-    "test": "npm --prefix contracts test"
+    "test": "npm --prefix contracts test",
+    "backend:up": "docker compose -f backend/docker-compose.yml up -d --build",
+    "backend:down": "docker compose -f backend/docker-compose.yml down",
+    "backend:test": "docker compose -f backend/docker-compose.yml run --rm -v ./backend/tests:/app/tests web python manage.py test tests"
   },
   "devDependencies": {
     "concurrently": "^9.0.0",

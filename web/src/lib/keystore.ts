@@ -69,7 +69,9 @@ export function parseKeyBlob(text: string): KeyBlob {
   return b;
 }
 
-export function loadStoredBlob(address: string): KeyBlob | null {
+// The sealed key now lives on the server (see KeyProvider). Browsers that ran an earlier version still hold a copy in
+// localStorage; it is read once to migrate it, then removed.
+export function loadLegacyBlob(address: string): KeyBlob | null {
   try {
     const raw = localStorage.getItem(blobKey(address));
     return raw ? parseKeyBlob(raw) : null;
@@ -77,10 +79,20 @@ export function loadStoredBlob(address: string): KeyBlob | null {
     return null;
   }
 }
-export const storeBlob = (blob: KeyBlob) => localStorage.setItem(blobKey(blob.address), JSON.stringify(blob));
-export const hasBackedUp = (address: string) => localStorage.getItem(backupKey(address)) === "1";
-export const markBackedUp = (address: string) => localStorage.setItem(backupKey(address), "1");
-export const clearBackedUp = (address: string) => localStorage.removeItem(backupKey(address));
+export const removeLegacyBlob = (address: string) => {
+  try {
+    localStorage.removeItem(blobKey(address));
+    localStorage.removeItem(backupKey(address));
+  } catch {
+    /* storage unavailable */
+  }
+};
+
+// Set when a key is created, cleared once the recovery file has been downloaded; forces the download.
+const needsKey = (address: string) => `heirloom:v1:needs-backup:${address.toLowerCase()}`;
+export const needsBackup = (address: string) => localStorage.getItem(needsKey(address)) === "1";
+export const setNeedsBackup = (address: string) => localStorage.setItem(needsKey(address), "1");
+export const clearNeedsBackup = (address: string) => localStorage.removeItem(needsKey(address));
 
 export function downloadRecoveryFile(blob: KeyBlob) {
   const url = URL.createObjectURL(new Blob([JSON.stringify(blob, null, 2)], { type: "application/json" }));

@@ -5,6 +5,7 @@ import { QueryClient, QueryClientProvider } from "@tanstack/react-query";
 import { config } from "@/lib/wagmi";
 import { ChainClockProvider } from "@/lib/hooks";
 import { ToastProvider } from "./Toasts";
+import { UnlockedKeyProvider } from "./KeyProvider";
 
 export function Providers({ children }: { children: ReactNode }) {
   const [client] = useState(() => new QueryClient({ defaultOptions: { queries: { staleTime: 2000, retry: 1 } } }));
@@ -12,7 +13,7 @@ export function Providers({ children }: { children: ReactNode }) {
     <WagmiProvider config={config}>
       <QueryClientProvider client={client}>
         <ToastProvider>
-          <ChainClockProvider>{children}</ChainClockProvider>
+          <ChainClockProvider><UnlockedKeyProvider>{children}</UnlockedKeyProvider></ChainClockProvider>
         </ToastProvider>
       </QueryClientProvider>
     </WagmiProvider>

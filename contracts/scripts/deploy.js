@@ -6,6 +6,7 @@ const hre = require("hardhat");
 
 const DEPLOYMENTS = path.join(__dirname, "..", "deployments");
 const OUT = path.join(__dirname, "..", "..", "web", "src", "lib", "contracts.ts");
+const BACKEND_CHAIN = path.join(__dirname, "..", "..", "backend", "chain");
 
 function writeContractsTs(abi) {
   const deployments = {};
@@ -35,6 +36,16 @@ async function fundLocalWallets() {
   }
 }
 
+// The backend indexer reads the ABI and the deployed addresses from backend/chain/ (merged per chain id).
+function writeBackendChain(abi, chainId, address, startBlock) {
+  fs.mkdirSync(BACKEND_CHAIN, { recursive: true });
+  fs.writeFileSync(path.join(BACKEND_CHAIN, "Heirloom.abi.json"), JSON.stringify(abi, null, 1));
+  const file = path.join(BACKEND_CHAIN, "deployments.json");
+  const all = fs.existsSync(file) ? JSON.parse(fs.readFileSync(file, "utf8")) : {};
+  all[chainId] = { address, startBlock };
+  fs.writeFileSync(file, JSON.stringify(all, null, 2));
+}
+
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
   if (!deployer) throw new Error("No deployer account. For amoy set DEPLOYER_PRIVATE_KEY (and AMOY_RPC_URL).");
@@ -51,6 +62,7 @@ async function main() {
     JSON.stringify({ chainId: Number(chainId), address, startBlock: receipt.blockNumber, deployer: deployer.address }, null, 2)
   );
   writeContractsTs(JSON.parse(factory.interface.formatJson()));
+  writeBackendChain(JSON.parse(factory.interface.formatJson()), Number(chainId), address, receipt.blockNumber);
   if (["localhost", "hardhat"].includes(hre.network.name)) await fundLocalWallets();
   console.log(`Heirloom deployed to ${address} on ${hre.network.name} (chainId ${chainId}, block ${receipt.blockNumber})`);
 }

@@ -10,6 +10,8 @@ import { Badge, Btn, Card, EmptyState, Input, Label, ListSkeleton, Mono, Select,
 import { humanError } from "@/lib/errors";
 import { claimState } from "@/lib/hooks";
 import { ClaimInfo } from "./ClaimInfo";
+import { useContacts } from "@/lib/contacts";
+import { NoPeople, PersonSelect, type Person } from "./PersonSelect";
 import { useKey } from "./KeyProvider";
 
 const MIN_SECONDS = 300;
@@ -41,7 +43,7 @@ function useRegistered(addresses: string[]) {
 
 const STATUS_TEXT = { invalid: "Not a valid address", checking: "Checking…", unregistered: "No encryption key registered yet", ok: "✓ Encryption key registered" };
 
-export default function OwnerView() {
+export default function OwnerView({ onGoPeople }: { onGoPeople?: () => void }) {
   const { address } = useHeirloom();
   const hasVault = useRead(["hasVault"], (c, k) => readers.hasVault(c, k, address!), { enabled: Boolean(address) });
   const vault = useRead(["vault"], (c, k) => readers.vault(c, k, address!), { enabled: hasVault.data === true });
@@ -53,19 +55,21 @@ export default function OwnerView() {
         <>
           <OwnerStats vault={vault.data} />
           <VaultCard vault={vault.data} />
-          <GuardianManager vault={vault.data} />
-          <UploadCard vault={vault.data} />
+          <GuardianManager vault={vault.data} onGoPeople={onGoPeople} />
+          <UploadCard vault={vault.data} onGoPeople={onGoPeople} />
           <AssetsCard vault={vault.data} />
         </>
       ) : (
-        <CreateVault />
+        <CreateVault onGoPeople={onGoPeople} />
       )}
     </div>
   );
 }
 
-function CreateVault() {
+function CreateVault({ onGoPeople }: { onGoPeople?: () => void }) {
   const send = useTx();
+  const contacts = useContacts("guardian");
+  const people: Person[] = (contacts.data ?? []).map((c) => ({ address: c.invitee.address, name: c.invitee.name }));
   const { address } = useHeirloom();
   const [guardians, setGuardians] = useState(["", "", ""]);
   const [threshold, setThreshold] = useState(2);
@@ -90,13 +94,17 @@ function CreateVault() {
   return (
     <Card title="Create your vault">
       <p className="text-sm text-muted">
-        Choose 3–7 guardians. Each must have signed in to Heirloom and registered an encryption key. Guardians never see your files; together
+        Choose 3–7 guardians from the people who have accepted your invitation. Guardians never see your files; together
         (at the threshold) they can release the key to your beneficiaries when you are gone.
       </p>
+      {!contacts.isLoading && people.length < 3 && (
+        <NoPeople message={`You have ${people.length} accepted guardian${people.length === 1 ? "" : "s"}; a vault needs at least 3. Invite people by email and ask them to accept.`} onGoPeople={onGoPeople} />
+      )}
       {guardians.map((g, i) => (
         <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : self(i) ? "You cannot be your own guardian" : STATUS_TEXT[status(g)]}>
           <div className="flex gap-2">
-            <Input placeholder="0x…" value={g} data-testid={`guardian-${i}`} onChange={(e) => setGuardians(guardians.map((x, j) => (j === i ? e.target.value.trim() : x)))} />
+            <PersonSelect value={g} people={people} taken={guardians} placeholder="Choose a guardian…" testId={`guardian-${i}`}
+              onChange={(v) => setGuardians(guardians.map((x, j) => (j === i ? v : x)))} />
             {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>Remove</Btn>}
           </div>
         </Label>
@@ -147,14 +155,21 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   );
 }
 
-function GuardianManager({ vault }: { vault: import("@/lib/contract").Vault }) {
+function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract").Vault; onGoPeople?: () => void }) {
   const send = useTx();
+  const contacts = useContacts("guardian");
+  const known = new Map((contacts.data ?? []).map((c) => [c.invitee.address.toLowerCase(), c.invitee.name]));
   const { address } = useHeirloom();
   const [open, setOpen] = useState(false);
   const [guardians, setGuardians] = useState<string[]>(vault.guardians);
   const [threshold, setThreshold] = useState(vault.threshold);
   const [busy, setBusy] = useState(false);
   const status = useRegistered(guardians);
+  // New guardians must be accepted contacts; guardians already on the vault stay selectable so they can be kept.
+  const rotatePeople: Person[] = [
+    ...vault.guardians.map((g) => ({ address: g, name: known.get(g.toLowerCase()) ?? "Current guardian" })),
+    ...(contacts.data ?? []).filter((c) => !vault.guardians.some((g) => g.toLowerCase() === c.invitee.address.toLowerCase())).map((c) => ({ address: c.invitee.address, name: c.invitee.name })),
+  ];
   const lower = guardians.map((g) => g.toLowerCase());
   const dup = (i: number) => guardians[i] !== "" && lower.indexOf(lower[i]) !== i;
   const th = Math.min(threshold, guardians.length);
@@ -173,10 +188,14 @@ function GuardianManager({ vault }: { vault: import("@/lib/contract").Vault }) {
       <p className="text-sm text-muted">
         Applies to the whole vault. It counts as a check-in (open claims are voided), and each reserved file must then be re-shared to the new guardians before it can be claimed again.
       </p>
+      {!contacts.isLoading && (contacts.data?.length ?? 0) === 0 && (
+        <NoPeople message="To add a new guardian, invite them by email first and wait for them to accept." onGoPeople={onGoPeople} />
+      )}
       {guardians.map((g, i) => (
         <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : STATUS_TEXT[status(g)]}>
           <div className="flex gap-2">
-            <Input value={g} placeholder="0x…" data-testid={`rotate-guardian-${i}`} onChange={(e) => setGuardians(guardians.map((x, j) => (j === i ? e.target.value.trim() : x)))} />
+            <PersonSelect value={g} people={rotatePeople} taken={guardians} placeholder="Choose a guardian…" testId={`rotate-guardian-${i}`}
+              onChange={(v) => setGuardians(guardians.map((x, j) => (j === i ? v : x)))} />
             {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>Remove</Btn>}
           </div>
         </Label>
@@ -195,8 +214,10 @@ function GuardianManager({ vault }: { vault: import("@/lib/contract").Vault }) {
   );
 }
 
-function UploadCard({ vault }: { vault: import("@/lib/contract").Vault }) {
+function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vault; onGoPeople?: () => void }) {
   const send = useTx();
+  const beneficiaries = useContacts("beneficiary");
+  const benPeople: Person[] = (beneficiaries.data ?? []).map((c) => ({ address: c.invitee.address, name: c.invitee.name }));
   const key = useKey();
   const { publicClient, deployment } = useHeirloom();
   const [file, setFile] = useState<File | null>(null);
@@ -262,8 +283,11 @@ function UploadCard({ vault }: { vault: import("@/lib/contract").Vault }) {
         <input type="file" data-testid="asset-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
       </Label>
       {tooBig && <p className="text-xs text-bad">File is too large.</p>}
-      <Label text="Beneficiary address" hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? "You cannot be your own beneficiary" : STATUS_TEXT[status(beneficiary)]}>
-        <Input placeholder="0x…" value={beneficiary} data-testid="beneficiary" onChange={(e) => setBeneficiary(e.target.value.trim())} />
+      {!beneficiaries.isLoading && benPeople.length === 0 && (
+        <NoPeople message="You have no accepted beneficiaries yet. Invite the person by email; once they accept, you can reserve files for them." onGoPeople={onGoPeople} />
+      )}
+      <Label text="Beneficiary" hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? "You cannot be your own beneficiary" : STATUS_TEXT[status(beneficiary)]}>
+        <PersonSelect value={beneficiary} people={benPeople} placeholder="Choose a beneficiary…" testId="beneficiary" onChange={setBeneficiary} />
       </Label>
       <div className="grid gap-3 sm:grid-cols-2">
         <Label text="Guardian approvals required">

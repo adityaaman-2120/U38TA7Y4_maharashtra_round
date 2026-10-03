@@ -7,3 +7,4 @@ storage/
 contracts/deployments/localhost.json
 .env
 contracts/fund.local.json
+backend/chain/deployments.json
