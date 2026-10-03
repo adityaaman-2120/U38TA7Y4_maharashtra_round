@@ -3,8 +3,8 @@ import { useState } from "react";
 import { isAddress, type Address } from "viem";
 import { EVIDENCE_TYPES } from "@/lib/contract";
 import { loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
-import { encryptFile, eciesEncrypt, splitKey, toHex } from "@/lib/crypto";
-import { pinCiphertext, MAX_UPLOAD_BYTES } from "@/lib/storage";
+import { decryptFile, downloadBytes, eciesDecrypt, encryptFile, eciesEncrypt, fromHex, splitKey, toHex } from "@/lib/crypto";
+import { fetchCiphertext, pinCiphertext, MAX_UPLOAD_BYTES } from "@/lib/storage";
 import { UNITS, fmtDuration, fmtTime, shortAddr, shortHash, type Unit } from "@/lib/format";
 import { Badge, Btn, Card, EmptyState, Input, Label, ListSkeleton, Mono, Select, Stat, StatGrid } from "./ui";
 import { humanError } from "@/lib/errors";
@@ -53,8 +53,9 @@ export default function OwnerView() {
         <>
           <OwnerStats vault={vault.data} />
           <VaultCard vault={vault.data} />
+          <GuardianManager vault={vault.data} />
           <UploadCard vault={vault.data} />
-          <AssetsCard />
+          <AssetsCard vault={vault.data} />
         </>
       ) : (
         <CreateVault />
@@ -142,6 +143,54 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
           : <Btn tone="danger" disabled={busy} onClick={() => act("Freeze vault", "panicFreeze")} data-testid="freeze">Panic freeze</Btn>}
       </div>
       {vault.frozen && <p className="text-xs text-warn">While frozen, no claim can be raised, approved or finalized.</p>}
+    </Card>
+  );
+}
+
+function GuardianManager({ vault }: { vault: import("@/lib/contract").Vault }) {
+  const send = useTx();
+  const { address } = useHeirloom();
+  const [open, setOpen] = useState(false);
+  const [guardians, setGuardians] = useState<string[]>(vault.guardians);
+  const [threshold, setThreshold] = useState(vault.threshold);
+  const [busy, setBusy] = useState(false);
+  const status = useRegistered(guardians);
+  const lower = guardians.map((g) => g.toLowerCase());
+  const dup = (i: number) => guardians[i] !== "" && lower.indexOf(lower[i]) !== i;
+  const th = Math.min(threshold, guardians.length);
+  const valid = guardians.length >= 3 && th >= 2 && guardians.every((g, i) => status(g) === "ok" && !dup(i) && lower[i] !== address?.toLowerCase());
+
+  if (!open) {
+    return (
+      <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-surface px-5 py-3">
+        <p className="text-sm text-ink-2">A guardian lost their key or stopped responding? You can replace them at any time.</p>
+        <Btn tone="ghost" onClick={() => setOpen(true)} data-testid="open-rotate">Replace guardians</Btn>
+      </div>
+    );
+  }
+  return (
+    <Card title="Replace guardians">
+      <p className="text-sm text-muted">
+        Applies to the whole vault. It counts as a check-in (open claims are voided), and each reserved file must then be re-shared to the new guardians before it can be claimed again.
+      </p>
+      {guardians.map((g, i) => (
+        <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : STATUS_TEXT[status(g)]}>
+          <div className="flex gap-2">
+            <Input value={g} placeholder="0x…" data-testid={`rotate-guardian-${i}`} onChange={(e) => setGuardians(guardians.map((x, j) => (j === i ? e.target.value.trim() : x)))} />
+            {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>Remove</Btn>}
+          </div>
+        </Label>
+      ))}
+      {guardians.length < 7 && <Btn tone="ghost" onClick={() => setGuardians([...guardians, ""])}>+ Add guardian</Btn>}
+      <Label text="Threshold">
+        <Select value={th} onChange={(e) => setThreshold(Number(e.target.value))}>
+          {Array.from({ length: guardians.length - 1 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n} of {guardians.length}</option>)}
+        </Select>
+      </Label>
+      <div className="flex gap-2">
+        <Btn disabled={!valid || busy} data-testid="rotate-submit" onClick={async () => { setBusy(true); if (await send("Replace guardians", "rotateGuardians", [guardians, th])) setOpen(false); setBusy(false); }}>Replace guardians</Btn>
+        <Btn tone="ghost" onClick={() => setOpen(false)}>Cancel</Btn>
+      </div>
     </Card>
   );
 }
@@ -273,10 +322,46 @@ function OwnerStats({ vault }: { vault: import("@/lib/contract").Vault }) {
   );
 }
 
-function AssetsCard() {
+function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   const send = useTx();
+  const key = useKey();
+  const { publicClient, deployment } = useHeirloom();
   const [busy, setBusy] = useState(false);
+  const [note, setNote] = useState<Record<number, { ok: boolean; text: string }>>({});
   const list = useOwnerAssets();
+
+  const guard = async (id: number, fn: () => Promise<string | void>) => {
+    setBusy(true);
+    try {
+      const text = await fn();
+      if (text) setNote((n) => ({ ...n, [id]: { ok: true, text } }));
+    } catch (e) {
+      setNote((n) => ({ ...n, [id]: { ok: false, text: humanError(e) } }));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  // The owner can always recover their own file: the key was also wrapped to the owner's own encryption key.
+  const openMine = (asset: import("@/lib/contract").Asset) => guard(asset.id, async () => {
+    const dek = eciesDecrypt(key.getSecret(), fromHex(asset.ownerWrappedKey));
+    const { name, data, hash } = await decryptFile(await fetchCiphertext(asset.storageId), dek);
+    if (hash.toLowerCase() !== asset.contentHash.toLowerCase()) throw new Error("Decrypted file does not match the on-chain hash");
+    downloadBytes(name, data);
+    return `Integrity verified: "${name}" matches the on-chain hash.`;
+  });
+
+  // After guardians change, re-split the same key to the new guardian set. Needs only the owner's key.
+  const reshare = (asset: import("@/lib/contract").Asset) => guard(asset.id, async () => {
+    if (!publicClient || !deployment) return;
+    const dek = eciesDecrypt(key.getSecret(), fromHex(asset.ownerWrappedKey));
+    const keys = await Promise.all(vault.guardians.map((g) => readers.encryptionKey(publicClient, deployment.address, g)));
+    if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error("A guardian's registered key is invalid");
+    const shares = await splitKey(dek, vault.guardians.length, vault.threshold);
+    const encShares = shares.map((sh, i) => toHex(eciesEncrypt(keys[i], sh)));
+    const wrapped = toHex(eciesEncrypt(key.publicKey, dek));
+    await send("Re-share asset", "updateAssetShares", [BigInt(asset.id), encShares, wrapped]);
+  });
 
   return (
     <Card title="Reserved files">
@@ -288,10 +373,18 @@ function AssetsCard() {
           <div className="flex flex-wrap items-center gap-2">
             <b>Asset #{asset.id}</b> → {shortAddr(asset.beneficiary)}
             {asset.released && <Badge tone="good">Released</Badge>}
+            {!asset.released && asset.sharesEpoch !== vault.epoch && <Badge tone="warn">Needs re-share</Badge>}
           </div>
           <p className="text-xs text-muted">
             ciphertext {shortHash(asset.storageId, 6)} · hash {shortHash(asset.contentHash, 6)} · {asset.policy.requiredApprovals} approvals · challenge {fmtDuration(asset.policy.challengePeriod)} · inactivity {fmtDuration(asset.policy.minInactivity)}
           </p>
+          <div className="flex flex-wrap gap-2">
+            <Btn tone="ghost" disabled={busy} data-testid="open-mine" onClick={() => openMine(asset)}>Open my copy</Btn>
+            {!asset.released && asset.sharesEpoch !== vault.epoch && (
+              <Btn disabled={busy} data-testid="reshare" onClick={() => reshare(asset)}>Re-share to new guardians</Btn>
+            )}
+          </div>
+          {note[asset.id] && <p className={`text-xs ${note[asset.id].ok ? "text-ok" : "text-bad"}`}>{note[asset.id].text}</p>}
           {bundle && (
             <ClaimInfo bundle={bundle} evidence>
               {bundle.claim.status === 1 && (
