@@ -80,6 +80,7 @@ export default function Landing() {
           <a href="#how" className="hidden rounded-lg px-3 py-2 text-ink-2 hover:bg-sunken sm:block">How it works</a>
           <a href="#private" className="hidden rounded-lg px-3 py-2 text-ink-2 hover:bg-sunken sm:block">Privacy</a>
           <a href="#safeguards" className="hidden rounded-lg px-3 py-2 text-ink-2 hover:bg-sunken sm:block">Safeguards</a>
+          <Link href="/security" className="hidden rounded-lg px-3 py-2 text-ink-2 hover:bg-sunken sm:block">Security</Link>
           <Link href="/app" className="ml-2 rounded-lg bg-ink px-4 py-2 font-medium text-paper hover:bg-ink-2">Open app</Link>
         </nav>
       </header>
@@ -202,7 +203,7 @@ export default function Landing() {
       <footer className="relative z-10 border-t border-line">
         <div className="mx-auto flex max-w-6xl flex-col gap-3 px-5 py-8 text-sm text-muted sm:flex-row sm:items-center sm:justify-between sm:px-8">
           <span className="inline-flex items-center gap-2"><LogoMark size={20} /> Heirloom</span>
-          <p>A working prototype on public testnets. Not audited. Do not store anything you cannot afford to lose.</p>
+          <p>A working prototype on public testnets. Not audited. Do not store anything you cannot afford to lose. <Link href="/security" className="underline hover:text-ink">What we store</Link></p>
         </div>
       </footer>
     </div>

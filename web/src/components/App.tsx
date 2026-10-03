@@ -17,8 +17,9 @@ import PeopleView from "./PeopleView";
 import GuardianView from "./GuardianView";
 import BeneficiaryView from "./BeneficiaryView";
 import AuditView from "./AuditView";
+import AccountView from "./AccountView";
 
-type View = "owner" | "people" | "guardian" | "beneficiary" | "audit";
+type View = "owner" | "people" | "guardian" | "beneficiary" | "audit" | "account";
 
 export default function App() {
   return (
@@ -57,7 +58,10 @@ function Header() {
   return (
     <header className="sticky top-0 z-30 border-b border-line bg-paper/85 backdrop-blur">
       <div className="mx-auto flex max-w-6xl flex-wrap items-center justify-between gap-3 px-4 py-3 sm:px-6">
-        <Link href="/" aria-label="Heirloom home"><Wordmark /></Link>
+        <div className="flex items-center gap-4">
+          <Link href="/" aria-label="Heirloom home"><Wordmark /></Link>
+          <Link href="/security" className="hidden text-sm text-muted hover:text-ink sm:block">Security</Link>
+        </div>
         {isConnected && address && (
           <div className="flex flex-wrap items-center gap-2 text-sm">
             <span className="inline-flex items-center gap-1.5 rounded-full border border-line-strong bg-surface px-3 py-1 text-ink-2">
@@ -130,7 +134,7 @@ function Gate({ children, prefillEmail }: { children: ReactNode; prefillEmail?: 
   );
 }
 
-const NAV_LABEL: Record<View, string> = { owner: "My vault", people: "People", guardian: "Guardian", beneficiary: "Inheritance", audit: "Audit" };
+const NAV_LABEL: Record<View, string> = { owner: "My vault", people: "People", guardian: "Guardian", beneficiary: "Inheritance", audit: "Audit", account: "Account" };
 
 function Main() {
   const roles = useRoles();
@@ -144,7 +148,7 @@ function Main() {
     return () => window.removeEventListener(NAVIGATE_EVENT, onNavigate);
   }, []);
 
-  const available: View[] = ["owner", "people", ...(roles.isGuardian ? (["guardian"] as const) : []), ...(roles.isBeneficiary ? (["beneficiary"] as const) : []), "audit"];
+  const available: View[] = ["owner", "people", ...(roles.isGuardian ? (["guardian"] as const) : []), ...(roles.isBeneficiary ? (["beneficiary"] as const) : []), "audit", "account"];
   const fallback: View = roles.isOwner ? "owner" : roles.isBeneficiary ? "beneficiary" : roles.isGuardian ? "guardian" : "owner";
   const view = picked && available.includes(picked) ? picked : fallback;
 
@@ -168,6 +172,7 @@ function Main() {
           : view === "people" ? <PeopleView />
           : view === "guardian" ? <GuardianView />
           : view === "beneficiary" ? <BeneficiaryView />
+          : view === "account" ? <AccountView />
           : <AuditView />}
       </main>
     </div>

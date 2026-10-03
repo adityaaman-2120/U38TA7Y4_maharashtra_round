@@ -3,7 +3,7 @@ import { useState } from "react";
 import { isAddress, type Address } from "viem";
 import { EVIDENCE_TYPES } from "@/lib/contract";
 import { loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
-import { decryptFile, downloadBytes, eciesDecrypt, encryptFile, eciesEncrypt, fromHex, splitKey, toHex } from "@/lib/crypto";
+import { MAX_LETTER_CHARS, decryptFile, downloadBytes, eciesDecrypt, encryptFile, eciesEncrypt, fromHex, isLetter, letterTitle, letterToFile, splitKey, toHex } from "@/lib/crypto";
 import { fetchCiphertext, pinCiphertext, MAX_UPLOAD_BYTES } from "@/lib/storage";
 import { UNITS, fmtDuration, fmtTime, shortAddr, shortHash, type Unit } from "@/lib/format";
 import { Badge, Btn, Card, EmptyState, Input, Label, ListSkeleton, Mono, Select, Stat, StatGrid } from "./ui";
@@ -12,6 +12,8 @@ import { claimState } from "@/lib/hooks";
 import { ClaimInfo } from "./ClaimInfo";
 import { useContacts } from "@/lib/contacts";
 import { NoPeople, PersonSelect, type Person } from "./PersonSelect";
+import { Letter } from "./Letter";
+import { reshareDek } from "@/lib/rotation";
 import { useKey } from "./KeyProvider";
 
 const MIN_SECONDS = 300;
@@ -157,13 +159,17 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
 
 function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract").Vault; onGoPeople?: () => void }) {
   const send = useTx();
+  const key = useKey();
+  const { address, publicClient, deployment } = useHeirloom();
   const contacts = useContacts("guardian");
   const known = new Map((contacts.data ?? []).map((c) => [c.invitee.address.toLowerCase(), c.invitee.name]));
-  const { address } = useHeirloom();
+  const owned = useOwnerAssets();
   const [open, setOpen] = useState(false);
   const [guardians, setGuardians] = useState<string[]>(vault.guardians);
   const [threshold, setThreshold] = useState(vault.threshold);
   const [busy, setBusy] = useState(false);
+  const [step, setStep] = useState("");
+  const [error, setError] = useState("");
   const status = useRegistered(guardians);
   // New guardians must be accepted contacts; guardians already on the vault stay selectable so they can be kept.
   const rotatePeople: Person[] = [
@@ -174,6 +180,43 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
   const dup = (i: number) => guardians[i] !== "" && lower.indexOf(lower[i]) !== i;
   const th = Math.min(threshold, guardians.length);
   const valid = guardians.length >= 3 && th >= 2 && guardians.every((g, i) => status(g) === "ok" && !dup(i) && lower[i] !== address?.toLowerCase());
+
+  // Files that are still sealed and will be re-split. Released files are final and are left alone.
+  const sealed = (owned.data ?? []).filter((r) => !r.asset.released).map((r) => r.asset);
+  const overAsked = sealed.filter((a) => a.policy.requiredApprovals > guardians.length);
+
+  const submit = async () => {
+    if (!publicClient || !deployment) return;
+    setBusy(true);
+    setError("");
+    let done = 0;
+    try {
+      // 1. Prove we can open every key BEFORE changing anything on-chain.
+      setStep(sealed.length ? "Unlocking your files' keys with your encryption key…" : "Preparing…");
+      const deks = sealed.map((a) => ({ id: a.id, dek: eciesDecrypt(key.getSecret(), fromHex(a.ownerWrappedKey)) }));
+      setStep("Reading the new guardians' public keys…");
+      const keys = await Promise.all(guardians.map((g) => readers.encryptionKey(publicClient, deployment.address, g as Address)));
+      if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error("A guardian's registered key is invalid");
+      // 2. Split every key for the new set (pure computation).
+      setStep("Splitting each file's key for the new guardians…");
+      const prepared = [];
+      for (const { id, dek } of deks) prepared.push({ id, ...(await reshareDek(dek, keys, th, key.publicKey)) });
+      // 3. Replace the guardians (this also counts as a check-in), then store the new shares per file.
+      setStep("Confirm the guardian change in your wallet…");
+      if (!(await send("Replace guardians", "rotateGuardians", [guardians, th]))) throw new Error("The guardian change was not confirmed. Nothing was changed.");
+      for (const p of prepared) {
+        setStep(`Re-sharing file ${++done} of ${prepared.length}…`);
+        const ok = await send(`Re-share asset #${p.id}`, "updateAssetShares", [BigInt(p.id), p.encShares, p.ownerWrapped]);
+        if (!ok) throw new Error(`Guardians were replaced, but asset #${p.id} was not re-shared yet. Use "Re-share to new guardians" on that file to finish.`);
+      }
+      setOpen(false);
+    } catch (e) {
+      setError(humanError(e));
+    } finally {
+      setStep("");
+      setBusy(false);
+    }
+  };
 
   if (!open) {
     return (
@@ -186,7 +229,9 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
   return (
     <Card title="Replace guardians">
       <p className="text-sm text-muted">
-        Applies to the whole vault. It counts as a check-in (open claims are voided), and each reserved file must then be re-shared to the new guardians before it can be claimed again.
+        This opens each file&apos;s key with your encryption key, splits it again for the new guardians, then updates the vault and every file on-chain.
+        It counts as a check-in (any open claim is voided).
+        {sealed.length > 0 ? ` ${sealed.length} sealed file${sealed.length === 1 ? "" : "s"} will be re-shared, which takes one wallet confirmation each.` : ""}
       </p>
       {!contacts.isLoading && (contacts.data?.length ?? 0) === 0 && (
         <NoPeople message="To add a new guardian, invite them by email first and wait for them to accept." onGoPeople={onGoPeople} />
@@ -206,10 +251,17 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
           {Array.from({ length: guardians.length - 1 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n} of {guardians.length}</option>)}
         </Select>
       </Label>
-      <div className="flex gap-2">
-        <Btn disabled={!valid || busy} data-testid="rotate-submit" onClick={async () => { setBusy(true); if (await send("Replace guardians", "rotateGuardians", [guardians, th])) setOpen(false); setBusy(false); }}>Replace guardians</Btn>
-        <Btn tone="ghost" onClick={() => setOpen(false)}>Cancel</Btn>
+      {overAsked.length > 0 && (
+        <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="rotate-warning">
+          {overAsked.map((a) => `Asset #${a.id}`).join(", ")} {overAsked.length === 1 ? "asks" : "ask"} for more approvals than the new set has guardians, so a claim on {overAsked.length === 1 ? "it" : "them"} could only
+          finish after its attestation deadline, when the guardian threshold alone is enough.
+        </p>
+      )}
+      <div className="flex flex-wrap items-center gap-2">
+        <Btn disabled={!valid || busy || owned.isLoading} data-testid="rotate-submit" onClick={submit}>{busy ? step || "Working…" : "Replace guardians"}</Btn>
+        <Btn tone="ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</Btn>
       </div>
+      {error && <p className="text-sm text-bad" data-testid="rotate-error">{error}</p>}
     </Card>
   );
 }
@@ -220,7 +272,10 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   const benPeople: Person[] = (beneficiaries.data ?? []).map((c) => ({ address: c.invitee.address, name: c.invitee.name }));
   const key = useKey();
   const { publicClient, deployment } = useHeirloom();
-  const [file, setFile] = useState<File | null>(null);
+  const [kind, setKind] = useState<"file" | "letter">("file");
+  const [pickedFile, setFile] = useState<File | null>(null);
+  const [letterName, setLetterName] = useState("");
+  const [letterText, setLetterText] = useState("");
   const [beneficiary, setBeneficiary] = useState("");
   const [approvals, setApprovals] = useState(vault.threshold);
   const [challenge, setChallenge] = useState({ v: 1, u: "days" as Unit });
@@ -234,6 +289,7 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   const status = useRegistered([beneficiary]);
   const now = useNow();
 
+  const file = kind === "file" ? pickedFile : letterText.trim() ? letterToFile(letterName, letterText) : null;
   const unlockAfter = unlock ? Math.floor(new Date(unlock).getTime() / 1000) : 0;
   const periodsOk = [challenge, inactivity, deadline].every((d) => secs(d.v, d.u) >= MIN_SECONDS);
   const tooBig = file ? file.size * 1.4 > MAX_UPLOAD_BYTES : false; // headroom for encryption overhead
@@ -247,7 +303,7 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
       setProgress("Reading guardian public keys…");
       const keys = await Promise.all(vault.guardians.map((g) => readers.encryptionKey(publicClient, deployment.address, g)));
       if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error("A guardian's registered key is invalid");
-      setProgress("Encrypting file in your browser…");
+      setProgress(kind === "letter" ? "Encrypting letter in your browser…" : "Encrypting file in your browser…");
       const { cipher, dek, plaintextHash } = await encryptFile(file);
       setProgress("Uploading ciphertext…");
       const cid = await pinCiphertext(cipher);
@@ -267,6 +323,8 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
       const ok = await send("Add asset", "addAsset", [beneficiary, cid, plaintextHash, encShares, ownerWrapped, policy]);
       if (ok) {
         setFile(null);
+        setLetterText("");
+        setLetterName("");
         setBeneficiary("");
       }
     } catch (e) {
@@ -278,10 +336,28 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   };
 
   return (
-    <Card title="Reserve a file for a beneficiary">
-      <Label text="File (encrypted in your browser before upload, max ~17 MB)">
-        <input type="file" data-testid="asset-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
-      </Label>
+    <Card title="Reserve something for a beneficiary">
+      <div className="inline-flex rounded-lg border border-line-strong bg-sunken p-0.5 text-sm" role="tablist" aria-label="What to reserve">
+        {(["file", "letter"] as const).map((k) => (
+          <button key={k} role="tab" aria-selected={kind === k} onClick={() => setKind(k)} data-testid={`kind-${k}`}
+            className={`rounded-md px-3 py-1.5 font-medium ${kind === k ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
+            {k === "file" ? "A file" : "A final letter"}
+          </button>
+        ))}
+      </div>
+      {kind === "file" ? (
+        <Label text="File (encrypted in your browser before upload, max ~17 MB)">
+          <input type="file" data-testid="asset-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
+        </Label>
+      ) : (
+        <div className="space-y-3">
+          <Label text="Title (optional)"><Input value={letterName} onChange={(e) => setLetterName(e.target.value)} maxLength={80} placeholder="e.g. For Priya" data-testid="letter-title" /></Label>
+          <Label text="Your letter" hint={`${letterText.length.toLocaleString()} / ${MAX_LETTER_CHARS.toLocaleString()} characters. Encrypted in your browser; the beneficiary reads it on screen after release.`}>
+            <textarea value={letterText} maxLength={MAX_LETTER_CHARS} onChange={(e) => setLetterText(e.target.value)} rows={8} data-testid="letter-text"
+              className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent" placeholder="Write what you want them to read…" />
+          </Label>
+        </div>
+      )}
       {tooBig && <p className="text-xs text-bad">File is too large.</p>}
       {!beneficiaries.isLoading && benPeople.length === 0 && (
         <NoPeople message="You have no accepted beneficiaries yet. Invite the person by email; once they accept, you can reserve files for them." onGoPeople={onGoPeople} />
@@ -314,7 +390,7 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
         </Label>
       </div>
       {!periodsOk && <p className="text-xs text-bad">Every period must be at least 5 minutes.</p>}
-      <Btn disabled={!valid || busy} onClick={submit} data-testid="add-asset">{busy ? progress || "Working…" : "Encrypt & reserve"}</Btn>
+      <Btn disabled={!valid || busy} onClick={submit} data-testid="add-asset">{busy ? progress || "Working…" : kind === "letter" ? "Encrypt letter & reserve" : "Encrypt & reserve"}</Btn>
       {error && <p className="text-sm text-bad">{error}</p>}
     </Card>
   );
@@ -352,6 +428,7 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   const { publicClient, deployment } = useHeirloom();
   const [busy, setBusy] = useState(false);
   const [note, setNote] = useState<Record<number, { ok: boolean; text: string }>>({});
+  const [letters, setLetters] = useState<Record<number, { title: string; text: string }>>({});
   const list = useOwnerAssets();
 
   const guard = async (id: number, fn: () => Promise<string | void>) => {
@@ -371,6 +448,10 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
     const dek = eciesDecrypt(key.getSecret(), fromHex(asset.ownerWrappedKey));
     const { name, data, hash } = await decryptFile(await fetchCiphertext(asset.storageId), dek);
     if (hash.toLowerCase() !== asset.contentHash.toLowerCase()) throw new Error("Decrypted file does not match the on-chain hash");
+    if (isLetter(name)) {
+      setLetters((l) => ({ ...l, [asset.id]: { title: letterTitle(name), text: new TextDecoder().decode(data) } }));
+      return "Integrity verified: your letter matches the on-chain hash.";
+    }
     downloadBytes(name, data);
     return `Integrity verified: "${name}" matches the on-chain hash.`;
   });
@@ -381,10 +462,8 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
     const dek = eciesDecrypt(key.getSecret(), fromHex(asset.ownerWrappedKey));
     const keys = await Promise.all(vault.guardians.map((g) => readers.encryptionKey(publicClient, deployment.address, g)));
     if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error("A guardian's registered key is invalid");
-    const shares = await splitKey(dek, vault.guardians.length, vault.threshold);
-    const encShares = shares.map((sh, i) => toHex(eciesEncrypt(keys[i], sh)));
-    const wrapped = toHex(eciesEncrypt(key.publicKey, dek));
-    await send("Re-share asset", "updateAssetShares", [BigInt(asset.id), encShares, wrapped]);
+    const { encShares, ownerWrapped } = await reshareDek(dek, keys, vault.threshold, key.publicKey);
+    await send("Re-share asset", "updateAssetShares", [BigInt(asset.id), encShares, ownerWrapped]);
   });
 
   return (
@@ -409,6 +488,7 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
             )}
           </div>
           {note[asset.id] && <p className={`text-xs ${note[asset.id].ok ? "text-ok" : "text-bad"}`}>{note[asset.id].text}</p>}
+          {letters[asset.id] && <Letter title={letters[asset.id].title} text={letters[asset.id].text} onClose={() => setLetters((l) => Object.fromEntries(Object.entries(l).filter(([k]) => Number(k) !== asset.id)))} />}
           {bundle && (
             <ClaimInfo bundle={bundle} evidence>
               {bundle.claim.status === 1 && (

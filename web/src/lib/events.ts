@@ -49,11 +49,14 @@ export function addressesOf(e: HeirloomEvent): string[] {
   return out;
 }
 
-export function summarize(e: HeirloomEvent, me?: string): string {
+export type Formatters = { addr: (a: string) => string; hash: (h: string, n?: number) => string };
+const SHORT: Formatters = { addr: shortAddr, hash: shortHash };
+
+export function summarize(e: HeirloomEvent, me?: string, fmt: Formatters = SHORT): string {
   const a = e.args;
   const who = (v: unknown) => {
     const s = String(v);
-    return me && s.toLowerCase() === me.toLowerCase() ? "you" : shortAddr(s);
+    return me && s.toLowerCase() === me.toLowerCase() ? "you" : fmt.addr(s);
   };
   switch (e.eventName) {
     case "EncryptionKeyRegistered": return `${who(a.account)} registered an encryption key`;
@@ -62,11 +65,11 @@ export function summarize(e: HeirloomEvent, me?: string): string {
     case "Heartbeat": return `${who(a.owner)} checked in — any open claim is now invalid`;
     case "PanicFrozen": return `${who(a.owner)} froze the vault`;
     case "VaultUnfrozen": return `${who(a.owner)} unfroze the vault`;
-    case "AssetAdded": return `Asset #${a.assetId} reserved by ${who(a.owner)} for ${who(a.beneficiary)} (ciphertext ${shortHash(String(a.storageId), 5)})`;
+    case "AssetAdded": return `Asset #${a.assetId} reserved by ${who(a.owner)} for ${who(a.beneficiary)} (ciphertext ${fmt.hash(String(a.storageId), 5)})`;
     case "AssetSharesUpdated": return `${who(a.owner)} re-shared asset #${a.assetId} to the current guardians`;
-    case "ClaimRaised": return `${who(a.claimant)} raised claim #${a.claimId} on asset #${a.assetId} (${EVIDENCE_TYPES[Number(a.evidenceType)]} evidence, hash ${shortHash(String(a.evidenceHash), 4)})`;
+    case "ClaimRaised": return `${who(a.claimant)} raised claim #${a.claimId} on asset #${a.assetId} (${EVIDENCE_TYPES[Number(a.evidenceType)]} evidence, hash ${fmt.hash(String(a.evidenceHash), 4)})`;
     case "Attested": return `${who(a.guardian)} approved claim #${a.claimId} (${a.approvals} approval${Number(a.approvals) === 1 ? "" : "s"} so far)`;
-    case "ClaimRejectedByGuardian": return `${who(a.guardian)} rejected claim #${a.claimId} (reason hash ${shortHash(String(a.reasonHash), 4)})`;
+    case "ClaimRejectedByGuardian": return `${who(a.guardian)} rejected claim #${a.claimId} (reason hash ${fmt.hash(String(a.reasonHash), 4)})`;
     case "ClaimRejected": return `Claim #${a.claimId} can no longer reach the guardian threshold and was closed`;
     case "FraudFlagged": return `${who(a.guardian)} flagged claim #${a.claimId} as fraud — it can no longer be finalized`;
     case "ClaimCancelled": return `${who(a.owner)} cancelled claim #${a.claimId}`;

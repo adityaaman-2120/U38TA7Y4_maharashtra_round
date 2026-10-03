@@ -21,14 +21,28 @@ export async function sha256(data: Uint8Array): Promise<Uint8Array> {
 
 // ---- AES-256-GCM file encryption --------------------------------------------------------------
 
-/** Package = [u16 nameLen][name utf8][file bytes], so the filename stays off chain and server. */
+const SALT_LEN = 32;
+const concat = (a: Uint8Array, b: Uint8Array) => {
+  const out = new Uint8Array(a.length + b.length);
+  out.set(a);
+  out.set(b, a.length);
+  return out;
+};
+
+/**
+ * Package = [u16 nameLen][name utf8][32-byte salt][content], all inside the AES-GCM ciphertext, so the filename and
+ * salt stay off chain and server. The hash that goes on-chain is SHA-256(salt || content): salted, so a short or
+ * guessable text (a one-line letter) cannot be confirmed by hashing guesses and comparing with the public hash.
+ */
 export async function encryptFile(file: File) {
   const data = new Uint8Array(await file.arrayBuffer());
   const name = new TextEncoder().encode(file.name);
-  const pkg = new Uint8Array(2 + name.length + data.length);
+  const salt = crypto.getRandomValues(new Uint8Array(SALT_LEN));
+  const pkg = new Uint8Array(2 + name.length + SALT_LEN + data.length);
   new DataView(pkg.buffer).setUint16(0, name.length);
   pkg.set(name, 2);
-  pkg.set(data, 2 + name.length);
+  pkg.set(salt, 2 + name.length);
+  pkg.set(data, 2 + name.length + SALT_LEN);
 
   const dek = crypto.getRandomValues(new Uint8Array(32));
   const iv = crypto.getRandomValues(new Uint8Array(12));
@@ -37,15 +51,29 @@ export async function encryptFile(file: File) {
   const cipher = new Uint8Array(12 + ct.length);
   cipher.set(iv);
   cipher.set(ct, 12);
-  return { cipher, dek, plaintextHash: toHex(await sha256(data)) };
+  return { cipher, dek, plaintextHash: toHex(await sha256(concat(salt, data))) };
 }
 
 export async function decryptFile(cipher: Uint8Array, dek: Uint8Array) {
   const key = await crypto.subtle.importKey("raw", bs(dek), "AES-GCM", false, ["decrypt"]);
   const pkg = new Uint8Array(await crypto.subtle.decrypt({ name: "AES-GCM", iv: bs(cipher.slice(0, 12)) }, key, bs(cipher.slice(12))));
   const nameLen = new DataView(pkg.buffer, pkg.byteOffset).getUint16(0);
-  const data = pkg.slice(2 + nameLen);
-  return { name: new TextDecoder().decode(pkg.slice(2, 2 + nameLen)), data, hash: toHex(await sha256(data)) };
+  const salt = pkg.slice(2 + nameLen, 2 + nameLen + SALT_LEN);
+  const data = pkg.slice(2 + nameLen + SALT_LEN);
+  return { name: new TextDecoder().decode(pkg.slice(2, 2 + nameLen)), data, hash: toHex(await sha256(concat(salt, data))) };
+}
+
+// ---- Final letters: encrypted text, shown inline to the beneficiary after release ---------------
+
+export const LETTER_SUFFIX = ".letter.txt";
+export const MAX_LETTER_CHARS = 20_000;
+export const isLetter = (name: string) => name.endsWith(LETTER_SUFFIX);
+export const letterTitle = (name: string) => name.slice(0, -LETTER_SUFFIX.length) || "Final letter";
+
+/** A letter travels exactly like a file (same encryption, shares and hash); only its name marks it as text. */
+export function letterToFile(title: string, text: string): File {
+  const safe = title.trim().replace(/[\\/]/g, "-").slice(0, 80) || "Final letter";
+  return new File([text], `${safe}${LETTER_SUFFIX}`, { type: "text/plain" });
 }
 
 // ---- Shamir -----------------------------------------------------------------------------------

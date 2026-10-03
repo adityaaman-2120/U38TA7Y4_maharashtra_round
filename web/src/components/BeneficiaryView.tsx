@@ -2,13 +2,14 @@
 import { useState } from "react";
 import { EVIDENCE_TYPES } from "@/lib/contract";
 import { claimState, loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
-import { combineShares, decryptFile, downloadBytes, eciesDecrypt, fromHex, sealEvidence } from "@/lib/crypto";
+import { combineShares, decryptFile, downloadBytes, eciesDecrypt, fromHex, isLetter, letterTitle, sealEvidence } from "@/lib/crypto";
 import { MAX_UPLOAD_BYTES, fetchCiphertext, pinCiphertext } from "@/lib/storage";
 import { fmtDuration, shortAddr, shortHash } from "@/lib/format";
 import type { Asset, Vault } from "@/lib/contract";
 import { Badge, Btn, EmptyState, Label, ListSkeleton, Select, Stat, StatGrid } from "./ui";
 import { humanError } from "@/lib/errors";
 import { ClaimInfo } from "./ClaimInfo";
+import { Letter } from "./Letter";
 import { useKey } from "./KeyProvider";
 
 type Row = { asset: Asset; vault: Vault; bundle: ClaimBundle | null };
@@ -61,6 +62,7 @@ function AssetRow({ row }: { row: Row }) {
   const [progress, setProgress] = useState("");
   const [error, setError] = useState("");
   const [verified, setVerified] = useState("");
+  const [letter, setLetter] = useState<{ title: string; text: string } | null>(null);
   const [file, setFile] = useState<File | null>(null);
   const p = asset.policy;
   const [evType, setEvType] = useState(p.evidenceType === 2 ? 0 : p.evidenceType);
@@ -119,6 +121,12 @@ function AssetRow({ row }: { row: Row }) {
     }
     if (!result) throw new Error("Could not decrypt: the released shares do not reconstruct a valid key");
     if (result.hash.toLowerCase() !== asset.contentHash.toLowerCase()) throw new Error("INTEGRITY CHECK FAILED: decrypted file does not match the on-chain hash");
+    if (isLetter(result.name)) {
+      setLetter({ title: letterTitle(result.name), text: new TextDecoder().decode(result.data) });
+      setVerified(`Integrity verified ✓ — the letter matches the SHA-256 recorded on-chain.`);
+      return;
+    }
+    setLetter(null);
     downloadBytes(result.name, result.data);
     setVerified(`Integrity verified ✓ — "${result.name}" (${result.data.length} bytes) matches the SHA-256 recorded on-chain.`);
   });
@@ -169,6 +177,7 @@ function AssetRow({ row }: { row: Row }) {
         </div>
       )}
       {verified && <p className="font-semibold text-ok" data-testid="integrity">{verified}</p>}
+      {letter && <Letter title={letter.title} text={letter.text} onClose={() => setLetter(null)} />}
       {error && <p className="text-xs text-bad">{error}</p>}
     </div>
   );

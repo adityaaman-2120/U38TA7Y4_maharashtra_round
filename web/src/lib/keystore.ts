@@ -23,20 +23,24 @@ async function deriveKey(password: string, salt: Uint8Array, iterations: number)
   return crypto.subtle.deriveKey({ name: "PBKDF2", hash: "SHA-256", salt: bs(salt), iterations }, base, { name: "AES-GCM", length: 256 }, false, ["encrypt", "decrypt"]);
 }
 
-export async function createKeyBlob(address: string, password: string) {
-  const { secret, publicKey } = generateKeypair();
-  const salt = crypto.getRandomValues(new Uint8Array(16));
+/** Seals an existing private key under `password`. Used for a new key and for changing the password of the same key. */
+export async function sealSecret(address: string, secret: Uint8Array, publicKey: string, password: string): Promise<KeyBlob> {
+  const salt = crypto.getRandomValues(new Uint8Array(16)); // fresh salt and IV every time
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(password, salt, PBKDF2_ITERATIONS);
   const ct = new Uint8Array(await crypto.subtle.encrypt({ name: "AES-GCM", iv: bs(iv), additionalData: bs(aad(address, publicKey)) }, key, bs(secret)));
-  const blob: KeyBlob = {
+  return {
     v: 1,
     address: address.toLowerCase(),
     publicKey: publicKey.toLowerCase(),
     kdf: { name: "PBKDF2-SHA256", iterations: PBKDF2_ITERATIONS, salt: b64(salt) },
     cipher: { name: "AES-256-GCM", iv: b64(iv), ct: b64(ct) },
   };
-  return { blob, secret };
+}
+
+export async function createKeyBlob(address: string, password: string) {
+  const { secret, publicKey } = generateKeypair();
+  return { blob: await sealSecret(address, secret, publicKey, password), secret };
 }
 
 /** Throws if the password is wrong or the blob was tampered with. */

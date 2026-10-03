@@ -11,7 +11,7 @@ import {
 import { Btn, Card, Input } from "./ui";
 
 type Status = "loading" | "setup" | "backup" | "register" | "import" | "locked" | "unlocked";
-type KeyApi = { publicKey: Hex; getSecret: () => Uint8Array; lock: () => void };
+type KeyApi = { publicKey: Hex; getSecret: () => Uint8Array; lock: () => void; blob: KeyBlob; replaceBlob: (b: KeyBlob) => Promise<void> };
 
 const Ctx = createContext<KeyApi | null>(null);
 
@@ -89,7 +89,12 @@ export function KeyGate({ children }: { children: ReactNode }) {
   };
 
   if (status === "unlocked" && blob) {
-    return <Ctx.Provider value={{ publicKey: blob.publicKey as Hex, getSecret: () => secret!, lock }}>{children}</Ctx.Provider>;
+    // Storing a re-sealed copy of the same key (new password) or a recovery file's copy replaces what the server holds.
+    const replaceBlob = async (b: KeyBlob) => {
+      await keyApi.put(b);
+      storeLocally(b);
+    };
+    return <Ctx.Provider value={{ publicKey: blob.publicKey as Hex, getSecret: () => secret!, lock, blob, replaceBlob }}>{children}</Ctx.Provider>;
   }
 
   return (
@@ -134,9 +139,11 @@ export function KeyGate({ children }: { children: ReactNode }) {
       )}
 
       {status === "locked" && blob && (
-        <UnlockForm busy={busy} error={error} onSubmit={(pw) => guard(async () => {
-          setUnlocked({ address: address!.toLowerCase(), secret: await unlockKeyBlob(blob, pw) });
-        })} />
+        <UnlockForm busy={busy} error={error} address={address!} onchain={onchain}
+          onSubmit={(pw) => guard(async () => {
+            setUnlocked({ address: address!.toLowerCase(), secret: await unlockKeyBlob(blob, pw) });
+          })}
+          onImport={async (b) => { await keyApi.put(b); storeLocally(b); }} />
       )}
     </div>
   );
@@ -164,20 +171,31 @@ function SetupForm({ busy, error, onSubmit }: { busy: boolean; error: string; on
   );
 }
 
-function UnlockForm({ busy, error, onSubmit }: { busy: boolean; error: string; onSubmit: (pw: string) => void }) {
+function UnlockForm({ busy, error, address, onchain, onSubmit, onImport }: {
+  busy: boolean; error: string; address: string; onchain: string | null; onSubmit: (pw: string) => void; onImport: (b: KeyBlob) => Promise<void>;
+}) {
   const [pw, setPw] = useState("");
+  const [recover, setRecover] = useState(false);
   return (
-    <Card title="Unlock your encryption key">
-      <form onSubmit={(e) => { e.preventDefault(); onSubmit(pw); }} className="space-y-3">
-        <Input type="password" autoComplete="current-password" placeholder="Encryption password" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="unlock-pw" />
-        <Btn type="submit" disabled={busy || !pw} data-testid="unlock">{busy ? "Unlocking…" : "Unlock"}</Btn>
-        {error && <p className="text-sm text-bad">{error}</p>}
-      </form>
-    </Card>
+    <div className="space-y-4">
+      <Card title="Unlock your encryption key">
+        <form onSubmit={(e) => { e.preventDefault(); onSubmit(pw); }} className="space-y-3">
+          <Input type="password" autoComplete="current-password" placeholder="Encryption password" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="unlock-pw" />
+          <Btn type="submit" disabled={busy || !pw} data-testid="unlock">{busy ? "Unlocking…" : "Unlock"}</Btn>
+          {error && <p className="text-sm text-bad">{error}</p>}
+        </form>
+        <button type="button" onClick={() => setRecover((r) => !r)} className="text-sm font-medium text-accent underline" data-testid="use-recovery">
+          {recover ? "Hide recovery options" : "Forgot your password? Use a recovery file instead"}
+        </button>
+      </Card>
+      {recover && (
+        <ImportForm address={address} onchain={onchain} variant="password" onImport={async (b) => { await onImport(b); setRecover(false); }} />
+      )}
+    </div>
   );
 }
 
-function ImportForm({ address, onchain, mismatch, onImport }: { address: string; onchain: string | null; mismatch: boolean; onImport: (b: KeyBlob) => Promise<void> }) {
+function ImportForm({ address, onchain, mismatch = false, variant, onImport }: { address: string; onchain: string | null; mismatch?: boolean; variant?: "password"; onImport: (b: KeyBlob) => Promise<void> }) {
   const [error, setError] = useState("");
   const onFile = async (f: File | undefined) => {
     if (!f) return;
@@ -194,10 +212,17 @@ function ImportForm({ address, onchain, mismatch, onImport }: { address: string;
   return (
     <Card title="Import your recovery file">
       <p className="text-sm text-ink-2">
-        {mismatch
-          ? "The key stored for this account does not match the key registered on-chain. Import the correct recovery file."
-          : "An encryption key is already registered on-chain for this account, but it is not stored with your account. Import your recovery file to continue."}
+        {variant === "password"
+          ? "A recovery file keeps the password it was created with. Choose a file whose password you remember. It replaces the copy stored with your account, and you then unlock it with that password."
+          : mismatch
+            ? "The key stored for this account does not match the key registered on-chain. Import the correct recovery file."
+            : "An encryption key is already registered on-chain for this account, but it is not stored with your account. Import your recovery file to continue."}
       </p>
+      {variant === "password" && (
+        <p className="text-xs text-muted">
+          No file, or no password you remember? Nobody can reset it for you; see <a href="/security#recovery" className="text-accent underline" target="_blank" rel="noreferrer">what you can still do</a>.
+        </p>
+      )}
       <input type="file" accept="application/json,.json" data-testid="import-file" onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
       {error && <p className="text-sm text-bad">{error}</p>}
     </Card>

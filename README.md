@@ -116,6 +116,35 @@ directly if the indexer is unreachable, stalled, reporting an error, or more tha
 4. **Guardian** — decrypts and previews the claim's evidence in the browser (approval stays locked until they have), then
    approves / rejects / flags fraud; after finalization re-encrypts their share to the beneficiary.
 5. **Audit** — every contract event with readable labels, filters (asset, claim, event type, actor, "only mine") and explorer links.
+   **Export PDF report** builds, in the browser, a chronological report of the filtered events with full transaction hashes (linked to the explorer),
+   senders, the contract address and a per-event summary.
+6. **Account** — edit your details, download a recovery file, and change your encryption password (see Recovery below).
+7. **Security page** (`/security`) — lists exactly what the blockchain, the server and the storage provider each hold, and why none can decrypt.
+
+### Reserving a file or a final letter
+The owner can reserve either a file or a **final letter**: text written in the app, encrypted exactly like a file (same key, shares and policy). The
+beneficiary sees it rendered on screen after release (as plain text, never HTML) with copy and download buttons, and the owner can read their own copy.
+A letter is just a file whose hidden name ends in `.letter.txt`, so nothing about the contract or the server changes.
+
+The content fingerprint stored on-chain is `SHA-256(salt || content)`, with the 32-byte random salt kept inside the encrypted file, so a short or guessable text
+cannot be confirmed by hashing guesses. The beneficiary recomputes it after decrypting ("Integrity verified"). The same applies to evidence.
+
+### Replacing guardians
+**Replace guardians** is one flow: it first opens every sealed file's key with the owner's encryption key (so a problem is found before anything changes
+on-chain), reads the new guardians' registered public keys, re-splits every key for the new set, then sends `rotateGuardians` and one `updateAssetShares` per
+file (one wallet confirmation each). If the flow is interrupted after the guardians change, the file shows **Needs re-share** with a button to finish it. A
+warning appears if a file asks for more approvals than the new set has guardians. Released files are final and are left alone.
+
+### Recovery
+- **Recovery file.** Created at sign-up and re-downloadable from the Account page. It is the same sealed key as the one stored on the server, so it opens with the
+  password it was created with. On the unlock screen, *Forgot your password? Use a recovery file instead* replaces the stored copy with the chosen file (same key
+  only; another account's file is rejected) and you unlock it with that file's password.
+- **Change password** (Account page) re-seals the same key under a new password and downloads a new recovery file. Older files still need the old password.
+- **If both the password and every recovery file are lost, nothing can recover the key**, by design. Guardians still hold their shares, so a claim can be approved and
+  released to the beneficiary, but the owner can no longer open their own copy or re-share files after replacing guardians.
+- **Future work: guardian-assisted recovery** (not built). The owner registers a new encryption key from their wallet; guardians (at their threshold) each re-encrypt
+  their share of a file's key to the new key after a waiting period in which the old key can cancel the request, and the owner rebuilds each key locally. It needs
+  a new contract path (a recovery request with its own challenge window, the fraud flag and a freeze) and an abuse analysis before shipping.
 
 ### Evidence
 The beneficiary's evidence file is encrypted with a fresh AES-256-GCM key. That key is ECIES-wrapped to each guardian and the

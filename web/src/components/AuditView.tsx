@@ -4,6 +4,7 @@ import { useQuery } from "@tanstack/react-query";
 import type { PublicClient } from "viem";
 import { useHeirloom } from "@/lib/hooks";
 import { useAuditEvents } from "@/lib/audit";
+import { buildAuditReport, reportFileName } from "@/lib/auditReport";
 import { explorerAddressUrl, explorerTxUrl } from "@/lib/wagmi";
 import { addressesOf, claimAssetMap, EVENT_LABELS, refsOf, summarize } from "@/lib/events";
 import { fmtTime, shortAddr, shortHash } from "@/lib/format";
@@ -26,7 +27,7 @@ async function loadMeta(client: PublicClient, chainId: number, events: { blockNu
 
 /** Audit trail built only from the contract's events. */
 export default function AuditView() {
-  const { address, chainId, publicClient } = useHeirloom();
+  const { address, chainId, publicClient, deployment } = useHeirloom();
   const audit = useAuditEvents();
   const all = audit.entries;
 
@@ -63,6 +64,36 @@ export default function AuditView() {
     }
     return true;
   }), [all, claimToAsset, type, assetId, claimId, actorFilter, chainId, meta.dataUpdatedAt]); // eslint-disable-line react-hooks/exhaustive-deps
+
+  const [exporting, setExporting] = useState(false);
+  const [exportError, setExportError] = useState("");
+  const exportPdf = async () => {
+    if (!chainId || !deployment) return;
+    setExporting(true);
+    setExportError("");
+    try {
+      // From the chain, time and sender are looked up lazily; make sure every row in the report has them.
+      const missing = filtered.filter((e) => e.ts === undefined && !blockTimes.has(`${chainId}:${e.blockNumber}`));
+      if (missing.length && publicClient) await loadMeta(publicClient, chainId, filtered);
+      const filters = [
+        type && `event = ${EVENT_LABELS[type]?.label ?? type}`, assetId !== "" && `asset #${assetId}`, claimId !== "" && `claim #${claimId}`,
+        actorFilter && `actor ${actorFilter}`,
+      ].filter(Boolean) as string[];
+      const doc = await buildAuditReport({
+        rows: filtered.map((e) => ({
+          entry: e,
+          time: e.ts ?? blockTimes.get(`${chainId}:${e.blockNumber}`),
+          actor: e.actor ?? txSenders.get(`${chainId}:${e.transactionHash}`),
+        })),
+        total: all.length, chainId, contract: deployment.address, source: audit.source, requestedBy: address ?? "unknown", filters,
+      });
+      doc.save(reportFileName(chainId));
+    } catch (e) {
+      setExportError(e instanceof Error ? e.message : String(e));
+    } finally {
+      setExporting(false);
+    }
+  };
 
   const shown = filtered.slice(0, limit);
   const reset = () => { setType(""); setAssetId(""); setClaimId(""); setActor(""); setMineOnly(false); setLimit(PAGE); };
@@ -103,6 +134,8 @@ export default function AuditView() {
             <input type="checkbox" checked={mineOnly} onChange={(e) => { setMineOnly(e.target.checked); setLimit(PAGE); }} data-testid="filter-mine" /> Only my activity
           </label>
           {filtersActive && <Btn tone="ghost" onClick={reset}>Clear filters</Btn>}
+          <Btn tone="ghost" onClick={exportPdf} disabled={exporting || filtered.length === 0} data-testid="export-pdf" className="sm:ml-auto">{exporting ? "Building PDF…" : "Export PDF report"}</Btn>
+          {exportError && <span className="text-xs text-bad">{exportError}</span>}
         </div>
       </Card>
 
