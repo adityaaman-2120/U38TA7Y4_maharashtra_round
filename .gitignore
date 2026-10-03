@@ -1,0 +1,8 @@
+node_modules/
+.next/
+artifacts/
+cache/
+storage/
+
+contracts/deployments/localhost.json
+.env
