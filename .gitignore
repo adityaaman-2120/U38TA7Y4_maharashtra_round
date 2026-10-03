@@ -1,0 +1,9 @@
+node_modules
+.next
+out
+*.tsbuildinfo
+.env*.local
+contracts/artifacts
+contracts/cache
+contracts/node_modules
+contracts/typechain-types
