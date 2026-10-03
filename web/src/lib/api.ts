@@ -1,5 +1,6 @@
 // Client for the Django API (proxied through Next at /backend). Auth is an httpOnly cookie the browser attaches
 // itself, so no token ever passes through JavaScript.
+import { rt } from "@/i18n/runtime";
 import type { KeyBlob } from "./keystore";
 
 export class ApiError extends Error {
@@ -18,7 +19,7 @@ function messageFrom(body: unknown, status: number): string {
     const first = Object.entries(b).find(([, v]) => Array.isArray(v) && typeof v[0] === "string");
     if (first) return `${first[0] === "non_field_errors" ? "" : `${first[0]}: `}${(first[1] as string[])[0]}`;
   }
-  return status === 429 ? "Too many requests. Please wait a moment." : `Request failed (${status})`;
+  return status === 429 ? rt("Errors.tooManyRequests") : rt("Errors.requestFailed", { status });
 }
 
 export async function api<T>(path: string, init: { method?: string; body?: Json } = {}): Promise<T> {
@@ -31,7 +32,7 @@ export async function api<T>(path: string, init: { method?: string; body?: Json 
       body: init.body ? JSON.stringify(init.body) : undefined,
     });
   } catch {
-    throw new ApiError(0, "Cannot reach the Heirloom server. Is the backend running?");
+    throw new ApiError(0, rt("Errors.cannotReachServer"));
   }
   if (res.status === 204) return undefined as T;
   const body = await res.json().catch(() => null);

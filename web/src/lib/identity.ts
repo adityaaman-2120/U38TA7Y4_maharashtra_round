@@ -2,6 +2,7 @@ import { useCallback } from "react";
 import type { Address } from "viem";
 import { readers, useHeirloom, useRead, useTx } from "./hooks";
 import { identityEnabled, zkDeployment } from "./zk/config";
+import { rt } from "@/i18n/runtime";
 import type { ZkProof } from "./zk/proof";
 
 /** Whether each address has verified an identity on-chain. Nothing is revealed about who they are. */
@@ -34,5 +35,5 @@ export function useZkDeployment() {
 
 export function useVerifyIdentity() {
   const send = useTx();
-  return useCallback((proof: ZkProof) => send("Verify identity", "verifyIdentity", [proof]), [send]);
+  return useCallback((proof: ZkProof) => send(rt("Identity.label"), "verifyIdentity", [proof]), [send]);
 }

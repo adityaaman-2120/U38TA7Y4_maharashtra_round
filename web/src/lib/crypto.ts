@@ -1,4 +1,5 @@
 import { split, combine } from "shamir-secret-sharing";
+import { rt } from "@/i18n/runtime";
 import { PrivateKey, encrypt, decrypt } from "eciesjs";
 import { bytesToHex, hexToBytes, type Hex } from "viem";
 
@@ -68,11 +69,11 @@ export async function decryptFile(cipher: Uint8Array, dek: Uint8Array) {
 export const LETTER_SUFFIX = ".letter.txt";
 export const MAX_LETTER_CHARS = 20_000;
 export const isLetter = (name: string) => name.endsWith(LETTER_SUFFIX);
-export const letterTitle = (name: string) => name.slice(0, -LETTER_SUFFIX.length) || "Final letter";
+export const letterTitle = (name: string) => name.slice(0, -LETTER_SUFFIX.length) || rt("Letter.defaultTitle");
 
 /** A letter travels exactly like a file (same encryption, shares and hash); only its name marks it as text. */
 export function letterToFile(title: string, text: string): File {
-  const safe = title.trim().replace(/[\\/]/g, "-").slice(0, 80) || "Final letter";
+  const safe = title.trim().replace(/[\\/]/g, "-").slice(0, 80) || rt("Letter.defaultTitle");
   return new File([text], `${safe}${LETTER_SUFFIX}`, { type: "text/plain" });
 }
 
@@ -104,7 +105,7 @@ export async function sealEvidence(file: File, recipients: { address: string; pu
 export async function openEvidence(container: Uint8Array, address: string, secret: Uint8Array) {
   const parsed = JSON.parse(new TextDecoder().decode(container));
   const wrap = parsed?.wraps?.[address.toLowerCase()];
-  if (parsed?.v !== 1 || typeof wrap !== "string" || typeof parsed.data !== "string") throw new Error("This evidence was not shared with your key");
+  if (parsed?.v !== 1 || typeof wrap !== "string" || typeof parsed.data !== "string") throw new Error(rt("Errors.evidenceNotShared"));
   return decryptFile(unb64(parsed.data), eciesDecrypt(secret, fromHex(wrap)));
 }
 

@@ -1,6 +1,7 @@
 import { createConfig, http } from "wagmi";
 import { hardhat, polygonAmoy, sepolia } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
+import { rt } from "@/i18n/runtime";
 
 export const config = createConfig({
   chains: [sepolia, polygonAmoy, hardhat],
@@ -13,7 +14,14 @@ export const config = createConfig({
   ssr: true,
 });
 
-export const CHAIN_LABELS: Record<number, string> = { [sepolia.id]: "Sepolia", [polygonAmoy.id]: "Polygon Amoy", [hardhat.id]: "Localhost" };
+// Network names are proper nouns, except the local development chain, which is named in the active language.
+export const CHAIN_LABELS: Record<number, string> = {
+  [sepolia.id]: "Sepolia",
+  [polygonAmoy.id]: "Polygon Amoy",
+  get [hardhat.id]() {
+    return rt("Chains.localhost");
+  },
+};
 
 const EXPLORERS: Record<number, string> = {
   [sepolia.id]: "https://sepolia.etherscan.io",

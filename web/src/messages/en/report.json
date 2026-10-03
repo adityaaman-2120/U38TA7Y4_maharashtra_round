@@ -1,0 +1,33 @@
+{
+  "Report": {
+    "title": "Heirloom audit report",
+    "subject": "Contract {contract} on {network}",
+    "chainFallback": "Chain {id}",
+    "generated": "Generated",
+    "network": "Network",
+    "networkValue": "{network} (chain id {chainId})",
+    "contract": "Contract",
+    "requestedBy": "Requested by",
+    "dataSource": "Data source",
+    "sourceIndexer": "Heirloom indexer (a copy of the contract's events)",
+    "sourceChain": "Read directly from the blockchain",
+    "events": "Events in this report",
+    "eventsCount": "{shown} of {total}",
+    "filtered": "(filtered: {filters})",
+    "filterEvent": "event = {label}",
+    "filterAsset": "asset #{id}",
+    "filterClaim": "claim #{id}",
+    "filterActor": "actor {address}",
+    "colEvent": "Event",
+    "colCount": "Count",
+    "colTime": "Time (UTC)",
+    "colBlock": "Block",
+    "colDetails": "Details",
+    "colHash": "Transaction hash",
+    "sentBy": "Sent by {actor}",
+    "footer": "Generated from the contract's public events. Verify any entry by opening its transaction hash on a block explorer.",
+    "page": "Page {page} of {pages}",
+    "na": "n/a",
+    "unknown": "unknown"
+  }
+}

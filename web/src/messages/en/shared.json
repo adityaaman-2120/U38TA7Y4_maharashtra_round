@@ -1,0 +1,70 @@
+{
+  "Meta": {
+    "title": "Heirloom — digital inheritance without trusting anyone",
+    "description": "Leave files to the people you choose. Encrypted in your browser, released only when your guardians agree you are gone.",
+    "appTitle": "Heirloom — App",
+    "inviteTitle": "Heirloom — Invitation",
+    "aliveTitle": "Heirloom — Check in"
+  },
+  "Language": {
+    "label": "Language"
+  },
+  "Common": {
+    "loading": "Loading",
+    "dismiss": "Dismiss",
+    "close": "Close",
+    "unnamed": "Unnamed",
+    "tryAgain": "Try again"
+  },
+  "Verified": {
+    "verified": "Verified",
+    "notVerified": "Not verified",
+    "notVerifiedHint": "Has not verified an identity",
+    "verifiedHint": "Verified with a zero-knowledge proof of a valid Aadhaar. No Aadhaar data is stored anywhere."
+  },
+  "PersonSelect": {
+    "placeholder": "Choose someone…",
+    "verifiedSuffix": "✓ verified",
+    "goToPeople": "Go to People"
+  },
+  "Letter": {
+    "eyebrow": "A letter for you",
+    "copied": "Copied",
+    "copy": "Copy text",
+    "download": "Download as .txt",
+    "close": "Close",
+    "defaultTitle": "Final letter"
+  },
+  "Toast": {
+    "dismiss": "Dismiss",
+    "tx": "Tx",
+    "onExplorer": "{hash} on explorer"
+  },
+  "Deployment": {
+    "networkFallback": "this network",
+    "chainFallback": "chain {id}",
+    "unreachableTitle": "Can't reach {where}",
+    "unreachableLocal": "The local chain isn't answering at http://127.0.0.1:8545.",
+    "unreachableRemote": "The network's RPC endpoint isn't answering. Check your connection and the RPC URL in the app's settings.",
+    "missingTitle": "Heirloom isn't on {where} at the expected address",
+    "missingBodyNothing": "This page expects Heirloom at {address}, but nothing is deployed there.",
+    "missingBodyOther": "This page expects Heirloom at {address}, but a different contract is there.",
+    "step1": "Stop any old <code>npm run dev</code> terminals, then start it once: <code>npm run dev</code> from the project folder.",
+    "step2": "Wait for <code>Heirloom deployed to …</code> in that terminal.",
+    "step3": "Reload this page (Ctrl+Shift+R). A restarted local chain starts empty and gets a fresh deployment, so this page must be reloaded to pick up the new address.",
+    "outdated": "The deployment record in this build is out of date for this network. Redeploy, or rebuild the app with the current <code>contracts.ts</code>.",
+    "checkAgain": "Check again",
+    "reload": "Reload page"
+  },
+  "Api": {
+    "storageNotConfigured": "Storage is not configured",
+    "contentType": "Content-Type must be application/octet-stream",
+    "tooBig": "File exceeds 25 MB",
+    "emptyBody": "Empty body",
+    "unreachable": "Storage provider unreachable",
+    "rejected": "Storage provider rejected the upload"
+  },
+  "Chains": {
+    "localhost": "Localhost"
+  }
+}

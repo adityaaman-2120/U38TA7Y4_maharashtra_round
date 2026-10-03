@@ -1,8 +1,12 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import AliveFlow from "@/components/AliveFlow";
 
 // The link carries a secret token: never index it, and never send it onward in a Referer header.
-export const metadata: Metadata = { title: "Heirloom — Check in", robots: { index: false }, referrer: "no-referrer" };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Meta");
+  return { title: t("aliveTitle"), robots: { index: false }, referrer: "no-referrer" };
+}
 
 export default async function AlivePage(props: PageProps<"/alive">) {
   const sp = await props.searchParams;

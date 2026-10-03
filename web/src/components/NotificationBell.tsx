@@ -1,6 +1,7 @@
 "use client";
 import { useEffect, useRef, useState } from "react";
 import { usePathname, useRouter } from "next/navigation";
+import { useTranslations } from "next-intl";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { notificationsApi, type Me, type Notice } from "@/lib/api";
 import { useHeirloom } from "@/lib/hooks";
@@ -8,16 +9,19 @@ import { fetchSession, useSessionKey } from "./Session";
 
 export const NAVIGATE_EVENT = "heirloom:navigate";
 
-function ago(iso: string): string {
+type BellT = ReturnType<typeof useTranslations<"Bell">>;
+
+function ago(iso: string, t: BellT): string {
   const s = Math.max(0, (Date.now() - Date.parse(iso)) / 1000);
-  if (s < 60) return "just now";
-  if (s < 3600) return `${Math.floor(s / 60)}m ago`;
-  if (s < 86400) return `${Math.floor(s / 3600)}h ago`;
-  return `${Math.floor(s / 86400)}d ago`;
+  if (s < 60) return t("justNow");
+  if (s < 3600) return t("minutesAgo", { n: Math.floor(s / 60) });
+  if (s < 86400) return t("hoursAgo", { n: Math.floor(s / 3600) });
+  return t("daysAgo", { n: Math.floor(s / 86400) });
 }
 
 /** Bell with an unread badge. Only exists for a signed-in user; polls the backend, which fills it from indexed events. */
 export function NotificationBell() {
+  const t = useTranslations("Bell");
   const { address } = useHeirloom();
   const sessionKey = useSessionKey();
   const me = useQuery<Me | null>({ queryKey: sessionKey, queryFn: () => fetchSession(address!), enabled: false }); // read-only view of the sign-in state
@@ -59,7 +63,7 @@ export function NotificationBell() {
   return (
     <div className="relative" ref={box}>
       <button
-        onClick={() => setOpen((o) => !o)} aria-label={`Notifications${unread ? `, ${unread} unread` : ""}`} aria-expanded={open} data-testid="bell"
+        onClick={() => setOpen((o) => !o)} aria-label={t("label", { unread })} aria-expanded={open} data-testid="bell"
         className="relative rounded-full border border-line-strong bg-surface p-2 text-ink-2 hover:bg-sunken"
       >
         <svg width="18" height="18" viewBox="0 0 24 24" fill="none" stroke="currentColor" strokeWidth="1.8" strokeLinecap="round" strokeLinejoin="round" aria-hidden>
@@ -74,29 +78,29 @@ export function NotificationBell() {
       </button>
 
       {open && (
-        <div role="dialog" aria-label="Notifications" className="absolute right-0 z-40 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_18px_40px_-16px_rgba(21,24,29,0.35)]" data-testid="bell-panel">
+        <div role="dialog" aria-label={t("title")} className="absolute right-0 z-40 mt-2 w-[min(22rem,calc(100vw-2rem))] overflow-hidden rounded-2xl border border-line bg-surface shadow-[0_18px_40px_-16px_rgba(21,24,29,0.35)]" data-testid="bell-panel">
           <div className="flex items-center justify-between border-b border-line px-4 py-3">
-            <p className="font-display text-xl text-ink">Notifications</p>
+            <p className="font-display text-xl text-ink">{t("title")}</p>
             <button disabled={unread === 0 || markRead.isPending} onClick={() => markRead.mutate({ all: true })} className="text-xs font-medium text-accent disabled:text-faint" data-testid="mark-all-read">
-              Mark all read
+              {t("markAllRead")}
             </button>
           </div>
           <ul className="max-h-96 overflow-y-auto">
-            {list.isLoading && <li className="px-4 py-6 text-sm text-muted">Loading…</li>}
-            {list.isError && <li className="px-4 py-6 text-sm text-bad">Could not load notifications.</li>}
+            {list.isLoading && <li className="px-4 py-6 text-sm text-muted">{t("loading")}</li>}
+            {list.isError && <li className="px-4 py-6 text-sm text-bad">{t("loadFailed")}</li>}
             {!list.isLoading && !list.isError && items.length === 0 && (
-              <li className="px-4 py-8 text-center text-sm text-muted">Nothing yet. Claims, approvals and reminders will show up here.</li>
+              <li className="px-4 py-8 text-center text-sm text-muted">{t("empty")}</li>
             )}
             {items.map((n) => (
               <li key={n.id} className="border-b border-line last:border-0">
                 <button onClick={() => go(n)} className={`w-full px-4 py-3 text-left hover:bg-sunken ${n.read ? "" : "bg-accent-soft/50"}`} data-testid="notif-item">
                   <span className="flex items-center gap-2">
-                    {!n.read && <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label="unread" />}
+                    {!n.read && <span className="h-2 w-2 shrink-0 rounded-full bg-accent" aria-label={t("unread")} />}
                     <span className={`text-sm ${n.read ? "text-ink-2" : "font-semibold text-ink"}`}>{n.title}</span>
-                    {n.urgent && <span className="rounded-full bg-bad-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-bad">Urgent</span>}
+                    {n.urgent && <span className="rounded-full bg-bad-soft px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wide text-bad">{t("urgent")}</span>}
                   </span>
                   <span className="mt-1 line-clamp-2 block text-xs text-muted">{n.body}</span>
-                  <span className="mt-1 block text-[11px] text-faint">{ago(n.created_at)}</span>
+                  <span className="mt-1 block text-[11px] text-faint">{ago(n.created_at, t)}</span>
                 </button>
               </li>
             ))}

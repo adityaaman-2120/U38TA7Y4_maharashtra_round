@@ -7,6 +7,7 @@ import { config } from "./wagmi";
 import { getDeployment, heirloomAbi, toAsset, toClaim, toVault, type Asset, type Claim, type Vault } from "./contract";
 import { fetchEvents } from "./logs";
 import { humanError } from "./errors";
+import { rt } from "@/i18n/runtime";
 import { useToasts } from "@/components/Toasts";
 
 type ChainId = (typeof config.chains)[number]["id"];
@@ -70,21 +71,21 @@ export function useTx() {
   return useCallback(
     async (label: string, functionName: string, args: unknown[] = [], opts: { value?: bigint; to?: Address; abi?: Abi } = {}): Promise<boolean> => {
       if (!publicClient || !walletClient || !deployment || !address) {
-        toast.push({ kind: "error", message: "Connect a wallet on a supported network first." });
+        toast.push({ kind: "error", message: rt("Tx.connectFirst") });
         return false;
       }
-      const id = toast.push({ kind: "pending", message: `${label}: confirm in your wallet…` });
+      const id = toast.push({ kind: "pending", message: rt("Tx.confirmWallet", { label }) });
       try {
         const { request } = await publicClient.simulateContract({ account: address, address: opts.to ?? deployment.address, abi: opts.abi ?? heirloomAbi, functionName, args, value: opts.value } as never);
         const hash = await walletClient.writeContract(request as never);
-        toast.update(id, { message: `${label}: waiting for confirmation…`, hash, chainId });
+        toast.update(id, { message: rt("Tx.waiting", { label }), hash, chainId });
         const receipt = await publicClient.waitForTransactionReceipt({ hash });
-        if (receipt.status !== "success") throw new Error("Transaction reverted");
-        toast.update(id, { kind: "success", message: `${label}: confirmed` });
+        if (receipt.status !== "success") throw new Error(rt("Errors.txReverted"));
+        toast.update(id, { kind: "success", message: rt("Tx.confirmed", { label }) });
         await qc.invalidateQueries({ queryKey: ["heirloom"] });
         return true;
       } catch (e) {
-        toast.update(id, { kind: "error", message: `${label}: ${humanError(e)}` });
+        toast.update(id, { kind: "error", message: rt("Tx.failed", { label, error: humanError(e) }) });
         return false;
       }
     },
@@ -134,13 +135,13 @@ export async function loadClaimBundle(c: C, k: Address, id: number, me: Address)
 
 export function claimState(b: ClaimBundle): { label: string; open: boolean; tone: "good" | "bad" | "warn" | "info" } {
   const s = b.claim.status;
-  if (s === 3) return { label: "Finalized", open: false, tone: "good" };
-  if (s === 2) return { label: "Cancelled by owner", open: false, tone: "bad" };
-  if (s === 4) return { label: "Rejected by guardians", open: false, tone: "bad" };
-  if (b.claim.flagged) return { label: "Flagged as fraud", open: false, tone: "bad" };
-  if (b.invalidated) return { label: "Invalidated by owner check-in", open: false, tone: "bad" };
-  if (b.vault.frozen) return { label: "Open (vault frozen)", open: true, tone: "warn" };
-  return { label: "Open", open: true, tone: "info" };
+  if (s === 3) return { label: rt("ClaimState.finalized"), open: false, tone: "good" };
+  if (s === 2) return { label: rt("ClaimState.cancelled"), open: false, tone: "bad" };
+  if (s === 4) return { label: rt("ClaimState.rejected"), open: false, tone: "bad" };
+  if (b.claim.flagged) return { label: rt("ClaimState.flagged"), open: false, tone: "bad" };
+  if (b.invalidated) return { label: rt("ClaimState.invalidated"), open: false, tone: "bad" };
+  if (b.vault.frozen) return { label: rt("ClaimState.openFrozen"), open: true, tone: "warn" };
+  return { label: rt("ClaimState.open"), open: true, tone: "info" };
 }
 
 export function useEvents() {

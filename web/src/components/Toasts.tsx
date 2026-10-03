@@ -1,4 +1,5 @@
 "use client";
+import { useTranslations } from "next-intl";
 import { createContext, useCallback, useContext, useMemo, useRef, useState, type ReactNode } from "react";
 import { explorerTxUrl } from "@/lib/wagmi";
 import { shortHash } from "@/lib/format";
@@ -18,6 +19,7 @@ export const useToasts = () => {
 };
 
 export function ToastProvider({ children }: { children: ReactNode }) {
+  const t = useTranslations("Toast");
   const [toasts, setToasts] = useState<Toast[]>([]);
   const next = useRef(1);
   const timers = useRef(new Map<number, ReturnType<typeof setTimeout>>());
@@ -51,19 +53,19 @@ export function ToastProvider({ children }: { children: ReactNode }) {
     <Ctx.Provider value={api}>
       {children}
       <div className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2" role="status" aria-live="polite">
-        {toasts.map((t) => {
-          const url = t.hash && t.chainId ? explorerTxUrl(t.chainId, t.hash) : null;
-          const tone = t.kind === "error" ? "border-bad/40" : t.kind === "success" ? "border-ok/40" : "border-line-strong";
+        {toasts.map((toast) => {
+          const url = toast.hash && toast.chainId ? explorerTxUrl(toast.chainId, toast.hash) : null;
+          const tone = toast.kind === "error" ? "border-bad/40" : toast.kind === "success" ? "border-ok/40" : "border-line-strong";
           return (
-            <div key={t.id} data-testid={`toast-${t.kind}`} className={`rounded-xl border ${tone} bg-surface p-3.5 text-sm text-ink shadow-[0_12px_32px_-12px_rgba(21,24,29,0.35)]`}>
+            <div key={toast.id} data-testid={`toast-${toast.kind}`} className={`rounded-xl border ${tone} bg-surface p-3.5 text-sm text-ink shadow-[0_12px_32px_-12px_rgba(21,24,29,0.35)]`}>
               <div className="flex items-start justify-between gap-2">
-                <p className="break-words">{t.kind === "pending" ? "⏳ " : t.kind === "success" ? "✓ " : "✗ "}{t.message}</p>
-                <button onClick={() => dismiss(t.id)} aria-label="Dismiss" className="text-muted hover:text-ink">×</button>
+                <p className="break-words">{toast.kind === "pending" ? "⏳ " : toast.kind === "success" ? "✓ " : "✗ "}{toast.message}</p>
+                <button onClick={() => dismiss(toast.id)} aria-label={t("dismiss")} className="text-muted hover:text-ink">×</button>
               </div>
-              {t.hash && (
+              {toast.hash && (
                 <p className="mt-1 text-xs text-muted">
-                  Tx{" "}
-                  {url ? <a href={url} target="_blank" rel="noreferrer" className="text-accent underline">{shortHash(t.hash, 6)} on explorer</a> : <span className="font-mono">{shortHash(t.hash, 6)}</span>}
+                  {t("tx")}{" "}
+                  {url ? <a href={url} target="_blank" rel="noreferrer" className="text-accent underline">{t("onExplorer", { hash: shortHash(toast.hash, 6) })}</a> : <span className="font-mono">{shortHash(toast.hash, 6)}</span>}
                 </p>
               )}
             </div>

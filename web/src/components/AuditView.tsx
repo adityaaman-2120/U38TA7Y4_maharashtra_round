@@ -1,12 +1,13 @@
 "use client";
 import { useMemo, useState } from "react";
+import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import type { PublicClient } from "viem";
 import { useHeirloom } from "@/lib/hooks";
 import { useAuditEvents } from "@/lib/audit";
 import { buildAuditReport, reportFileName } from "@/lib/auditReport";
 import { explorerAddressUrl, explorerTxUrl } from "@/lib/wagmi";
-import { addressesOf, claimAssetMap, EVENT_LABELS, refsOf, summarize } from "@/lib/events";
+import { addressesOf, claimAssetMap, eventLabel, eventTone, refsOf, summarize } from "@/lib/events";
 import { fmtTime, shortAddr, shortHash } from "@/lib/format";
 import { Badge, Btn, Card, EmptyState, Input, Label, ListSkeleton, Select } from "./ui";
 
@@ -27,6 +28,7 @@ async function loadMeta(client: PublicClient, chainId: number, events: { blockNu
 
 /** Audit trail built only from the contract's events. */
 export default function AuditView() {
+  const t = useTranslations("Audit");
   const { address, chainId, publicClient, deployment } = useHeirloom();
   const audit = useAuditEvents();
   const all = audit.entries;
@@ -75,17 +77,13 @@ export default function AuditView() {
       // From the chain, time and sender are looked up lazily; make sure every row in the report has them.
       const missing = filtered.filter((e) => e.ts === undefined && !blockTimes.has(`${chainId}:${e.blockNumber}`));
       if (missing.length && publicClient) await loadMeta(publicClient, chainId, filtered);
-      const filters = [
-        type && `event = ${EVENT_LABELS[type]?.label ?? type}`, assetId !== "" && `asset #${assetId}`, claimId !== "" && `claim #${claimId}`,
-        actorFilter && `actor ${actorFilter}`,
-      ].filter(Boolean) as string[];
       const doc = await buildAuditReport({
         rows: filtered.map((e) => ({
           entry: e,
           time: e.ts ?? blockTimes.get(`${chainId}:${e.blockNumber}`),
           actor: e.actor ?? txSenders.get(`${chainId}:${e.transactionHash}`),
         })),
-        total: all.length, chainId, contract: deployment.address, source: audit.source, requestedBy: address ?? "unknown", filters,
+        total: all.length, chainId, contract: deployment.address, source: audit.source, requestedBy: address ?? t("unknownRequester"), filters: { type, assetId, claimId, actor: actorFilter },
       });
       doc.save(reportFileName(chainId));
     } catch (e) {
@@ -101,40 +99,40 @@ export default function AuditView() {
 
   return (
     <div className="space-y-4">
-      <Card title="Audit trail" right={<span className="text-xs text-muted">{filtered.length} of {all.length} events</span>}>
-        <p className="text-sm text-muted">Every state change is an on-chain event, and no file contents appear in it.</p>
+      <Card title={t("title")} right={<span className="text-xs text-muted">{t("count", { shown: filtered.length, total: all.length })}</span>}>
+        <p className="text-sm text-muted">{t("intro")}</p>
         <p className="text-xs text-faint" data-testid="audit-source" data-source={audit.source}>
-          Source: <b>{audit.source === "indexer" ? "indexer" : "blockchain"}</b>. {audit.note}.
+          {t.rich("sourceLine", { source: audit.source === "indexer" ? t("sourceIndexer") : t("sourceChain"), note: audit.note, b: (c) => <b>{c}</b> })}
         </p>
         <div className="grid gap-3 sm:grid-cols-2 lg:grid-cols-4">
-          <Label text="Event">
+          <Label text={t("filterEvent")}>
             <Select value={type} onChange={(e) => { setType(e.target.value); setLimit(PAGE); }} data-testid="filter-type">
-              <option value="">All events</option>
-              {types.map((t) => <option key={t} value={t}>{EVENT_LABELS[t]?.label ?? t}</option>)}
+              <option value="">{t("allEvents")}</option>
+              {types.map((n) => <option key={n} value={n}>{eventLabel(n)}</option>)}
             </Select>
           </Label>
-          <Label text="Asset">
+          <Label text={t("filterAsset")}>
             <Select value={assetId} onChange={(e) => { setAssetId(e.target.value); setLimit(PAGE); }} data-testid="filter-asset">
-              <option value="">All assets</option>
-              {assetIds.map((i) => <option key={i} value={i}>Asset #{i}</option>)}
+              <option value="">{t("allAssets")}</option>
+              {assetIds.map((i) => <option key={i} value={i}>{t("assetOption", { id: i })}</option>)}
             </Select>
           </Label>
-          <Label text="Claim">
+          <Label text={t("filterClaim")}>
             <Select value={claimId} onChange={(e) => { setClaimId(e.target.value); setLimit(PAGE); }} data-testid="filter-claim">
-              <option value="">All claims</option>
-              {claimIds.map((i) => <option key={i} value={i}>Claim #{i}</option>)}
+              <option value="">{t("allClaims")}</option>
+              {claimIds.map((i) => <option key={i} value={i}>{t("claimOption", { id: i })}</option>)}
             </Select>
           </Label>
-          <Label text="Actor (address)">
+          <Label text={t("filterActor")}>
             <Input placeholder="0x…" value={mineOnly ? address ?? "" : actor} disabled={mineOnly} data-testid="filter-actor" onChange={(e) => { setActor(e.target.value); setLimit(PAGE); }} />
           </Label>
         </div>
         <div className="flex flex-wrap items-center gap-3">
           <label className="flex items-center gap-2 text-sm text-ink-2">
-            <input type="checkbox" checked={mineOnly} onChange={(e) => { setMineOnly(e.target.checked); setLimit(PAGE); }} data-testid="filter-mine" /> Only my activity
+            <input type="checkbox" checked={mineOnly} onChange={(e) => { setMineOnly(e.target.checked); setLimit(PAGE); }} data-testid="filter-mine" /> {t("mineOnly")}
           </label>
-          {filtersActive && <Btn tone="ghost" onClick={reset}>Clear filters</Btn>}
-          <Btn tone="ghost" onClick={exportPdf} disabled={exporting || filtered.length === 0} data-testid="export-pdf" className="sm:ml-auto">{exporting ? "Building PDF…" : "Export PDF report"}</Btn>
+          {filtersActive && <Btn tone="ghost" onClick={reset}>{t("clear")}</Btn>}
+          <Btn tone="ghost" onClick={exportPdf} disabled={exporting || filtered.length === 0} data-testid="export-pdf" className="sm:ml-auto">{exporting ? t("building") : t("exportPdf")}</Btn>
           {exportError && <span className="text-xs text-bad">{exportError}</span>}
         </div>
       </Card>
@@ -142,15 +140,14 @@ export default function AuditView() {
       {audit.loading ? (
         <ListSkeleton rows={5} />
       ) : audit.failed ? (
-        <Card title="Could not load events"><p className="text-sm text-bad">The network request failed. It will retry automatically.</p></Card>
+        <Card title={t("loadFailedTitle")}><p className="text-sm text-bad">{t("loadFailedBody")}</p></Card>
       ) : all.length === 0 ? (
-        <EmptyState title="No activity yet" hint="Events appear here as soon as someone registers a key or creates a vault." />
+        <EmptyState title={t("emptyTitle")} hint={t("emptyHint")} />
       ) : filtered.length === 0 ? (
-        <EmptyState title="No events match these filters" hint="Try clearing a filter." />
+        <EmptyState title={t("noMatchTitle")} hint={t("noMatchHint")} />
       ) : (
         <ul className="space-y-2" data-testid="audit-list">
           {shown.map((e) => {
-            const info = EVENT_LABELS[e.eventName] ?? { label: e.eventName, tone: "info" as const };
             const refs = refsOf(e, claimToAsset);
             const ts = e.ts ?? blockTimes.get(`${chainId}:${e.blockNumber}`);
             const sender = e.actor ?? txSenders.get(`${chainId}:${e.transactionHash}`);
@@ -159,19 +156,19 @@ export default function AuditView() {
             return (
               <li key={`${e.transactionHash}-${e.logIndex}`} className="rounded-xl border border-line bg-surface p-3" data-testid="audit-row">
                 <div className="flex flex-wrap items-center gap-2">
-                  <Badge tone={info.tone}>{info.label}</Badge>
-                  {refs.assetId !== undefined && <span className="text-xs text-muted">asset #{refs.assetId}</span>}
-                  {refs.claimId !== undefined && <span className="text-xs text-muted">claim #{refs.claimId}</span>}
+                  <Badge tone={eventTone(e.eventName)}>{eventLabel(e.eventName)}</Badge>
+                  {refs.assetId !== undefined && <span className="text-xs text-muted">{t("asset", { id: refs.assetId })}</span>}
+                  {refs.claimId !== undefined && <span className="text-xs text-muted">{t("claim", { id: refs.claimId })}</span>}
                 </div>
                 <p className="mt-1 text-sm text-ink">{summarize(e, address)}</p>
                 <p className="mt-1 flex flex-wrap gap-x-3 gap-y-1 text-xs text-faint">
-                  <span>block {String(e.blockNumber)}</span>
+                  <span>{t("block", { block: String(e.blockNumber) })}</span>
                   <span>{ts ? fmtTime(ts) : "…"}</span>
                   <span>
-                    by {sender ? (senderUrl ? <a href={senderUrl} target="_blank" rel="noreferrer" className="font-mono text-accent underline">{shortAddr(sender)}</a> : <span className="font-mono">{shortAddr(sender)}</span>) : "…"}
+                    {t("by")} {sender ? (senderUrl ? <a href={senderUrl} target="_blank" rel="noreferrer" className="font-mono text-accent underline">{shortAddr(sender)}</a> : <span className="font-mono">{shortAddr(sender)}</span>) : "…"}
                   </span>
                   <span>
-                    tx {txUrl ? <a href={txUrl} target="_blank" rel="noreferrer" className="font-mono text-accent underline">{shortHash(e.transactionHash, 4)}</a> : <span className="font-mono">{shortHash(e.transactionHash, 4)}</span>}
+                    {t("tx")} {txUrl ? <a href={txUrl} target="_blank" rel="noreferrer" className="font-mono text-accent underline">{shortHash(e.transactionHash, 4)}</a> : <span className="font-mono">{shortHash(e.transactionHash, 4)}</span>}
                   </span>
                 </p>
               </li>
@@ -179,7 +176,7 @@ export default function AuditView() {
           })}
         </ul>
       )}
-      {filtered.length > limit && <Btn tone="ghost" onClick={() => setLimit(limit + PAGE)} data-testid="load-more">Show more</Btn>}
+      {filtered.length > limit && <Btn tone="ghost" onClick={() => setLimit(limit + PAGE)} data-testid="load-more">{t("showMore")}</Btn>}
     </div>
   );
 }

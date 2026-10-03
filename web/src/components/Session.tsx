@@ -1,6 +1,7 @@
 "use client";
 import { createContext, useContext, useState, type FormEvent, type ReactNode } from "react";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { ApiError, authApi, type Me } from "@/lib/api";
 import { useHeirloom } from "@/lib/hooks";
 import { Btn, Card, Input, Label } from "./ui";
@@ -37,6 +38,7 @@ export async function fetchSession(address: string): Promise<Me | null> {
  * whose profile is complete. The session itself is an httpOnly cookie, invisible to this code.
  */
 export function SessionGate({ children, prefillEmail }: { children: ReactNode; prefillEmail?: string }) {
+  const t = useTranslations("Session");
   const { address, chainId, walletClient } = useHeirloom();
   const qc = useQueryClient();
   const key = useSessionKey();
@@ -50,7 +52,7 @@ export function SessionGate({ children, prefillEmail }: { children: ReactNode; p
 
   const signIn = useMutation({
     mutationFn: async () => {
-      if (!walletClient || !address || !chainId) throw new Error("Wallet not ready");
+      if (!walletClient || !address || !chainId) throw new Error(t("walletNotReady"));
       const { message } = await authApi.nonce(address, chainId);
       const signature = await walletClient.signMessage({ account: address, message });
       return authApi.verify(address, signature);
@@ -58,22 +60,22 @@ export function SessionGate({ children, prefillEmail }: { children: ReactNode; p
     onSuccess: (me) => qc.setQueryData(key, me),
   });
 
-  if (session.isLoading) return <p className="text-muted">Checking your session…</p>;
+  if (session.isLoading) return <p className="text-muted">{t("checking")}</p>;
   if (session.isError) return <ServerDown onRetry={() => session.refetch()} message={(session.error as Error).message} />;
 
   const me = session.data;
   if (!me) {
     return (
       <div className="mx-auto max-w-xl pt-6">
-        <p className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-brass">Step 2 · Sign in</p>
-        <h1 className="font-display text-4xl leading-tight text-ink">Prove this wallet is yours.</h1>
-        <p className="mt-3 text-ink-2">You will be asked to sign a short message. It is free, sends no transaction, and cannot move any funds.</p>
+        <p className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-brass">{t("step")}</p>
+        <h1 className="font-display text-4xl leading-tight text-ink">{t("heading")}</h1>
+        <p className="mt-3 text-ink-2">{t("body")}</p>
         <div className="mt-6">
           <Btn onClick={() => signIn.mutate()} disabled={signIn.isPending} data-testid="siwe" className="px-5 py-2.5">
-            {signIn.isPending ? "Waiting for your wallet…" : "Sign in with Ethereum"}
+            {signIn.isPending ? t("waitingWallet") : t("signIn")}
           </Btn>
         </div>
-        {signIn.isError && <p className="mt-3 text-sm text-bad">{signInMessage(signIn.error)}</p>}
+        {signIn.isError && <p className="mt-3 text-sm text-bad">{signInMessage(signIn.error, t("signatureRejected"))}</p>}
       </div>
     );
   }
@@ -82,23 +84,25 @@ export function SessionGate({ children, prefillEmail }: { children: ReactNode; p
   return <MeCtx.Provider value={me}>{children}</MeCtx.Provider>;
 }
 
-function signInMessage(e: unknown): string {
+function signInMessage(e: unknown, rejected: string): string {
   if (e instanceof ApiError) return e.message;
   const msg = e instanceof Error ? e.message : String(e);
-  return /reject|denied/i.test(msg) ? "Signature request rejected in your wallet." : msg;
+  return /reject|denied/i.test(msg) ? rejected : msg;
 }
 
 function ServerDown({ onRetry, message }: { onRetry: () => void; message: string }) {
+  const t = useTranslations("Session");
   return (
     <div className="mx-auto max-w-xl pt-6">
-      <h1 className="font-display text-4xl leading-tight text-ink">Can&apos;t reach the server</h1>
+      <h1 className="font-display text-4xl leading-tight text-ink">{t("serverDownTitle")}</h1>
       <p className="mt-3 text-bad">{message}</p>
-      <div className="mt-5"><Btn onClick={onRetry}>Try again</Btn></div>
+      <div className="mt-5"><Btn onClick={onRetry}>{t("tryAgain")}</Btn></div>
     </div>
   );
 }
 
 function ProfileForm({ me, prefillEmail, onSaved }: { me: Me; prefillEmail?: string; onSaved: (m: Me) => void }) {
+  const t = useTranslations("Session");
   const [name, setName] = useState(me.name);
   const [email, setEmail] = useState(me.email || prefillEmail || "");
   const [phone, setPhone] = useState(me.phone);
@@ -106,15 +110,15 @@ function ProfileForm({ me, prefillEmail, onSaved }: { me: Me; prefillEmail?: str
   const submit = (e: FormEvent) => { e.preventDefault(); if (name.trim() && email.trim()) save.mutate(); };
   return (
     <div className="mx-auto max-w-xl">
-      <Card title="Tell us who you are">
+      <Card title={t("profileTitle")}>
         <form onSubmit={submit} className="space-y-4">
-          <p className="text-sm text-muted">Your name and email are stored off-chain only, so the people you invite (or who invite you) know who is who. They never go on the blockchain.</p>
-          <Label text="Full name"><Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" data-testid="profile-name" maxLength={80} /></Label>
-          <Label text="Email" hint={prefillEmail ? "Must match the address the invitation was sent to." : undefined}>
+          <p className="text-sm text-muted">{t("profileBody")}</p>
+          <Label text={t("fullName")}><Input value={name} onChange={(e) => setName(e.target.value)} autoComplete="name" data-testid="profile-name" maxLength={80} /></Label>
+          <Label text={t("email")} hint={prefillEmail ? t("emailHint") : undefined}>
             <Input type="email" value={email} onChange={(e) => setEmail(e.target.value)} autoComplete="email" data-testid="profile-email" />
           </Label>
-          <Label text="Phone (optional)"><Input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" data-testid="profile-phone" /></Label>
-          <Btn type="submit" disabled={save.isPending || !name.trim() || !email.trim()} data-testid="profile-save">{save.isPending ? "Saving…" : "Continue"}</Btn>
+          <Label text={t("phone")}><Input type="tel" value={phone} onChange={(e) => setPhone(e.target.value)} autoComplete="tel" data-testid="profile-phone" /></Label>
+          <Btn type="submit" disabled={save.isPending || !name.trim() || !email.trim()} data-testid="profile-save">{save.isPending ? t("saving") : t("continue")}</Btn>
           {save.isError && <p className="text-sm text-bad">{(save.error as Error).message}</p>}
         </form>
       </Card>

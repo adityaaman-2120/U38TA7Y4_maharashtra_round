@@ -1889,10 +1889,10 @@ export const heirloomAbi = [
 
 export const heirloomDeployments = {
   "31337": {
-    "address": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
-    "startBlock": 2,
-    "anonAadhaar": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
-    "anonAadhaarMode": "mock",
+    "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "startBlock": 3,
+    "anonAadhaar": "0xe7f1725E7734CE288F8367e1Bb143E90bb3F0512",
+    "anonAadhaarMode": "test",
     "nullifierSeed": "125261277553436191029282538372828965788342804403891041579222138205543842663"
   }
 } as const;
@@ -1900,7 +1900,7 @@ export const heirloomDeployments = {
 /** Faucet test token (HTT) per chain. Test networks only: it is deployed by deploy-test-token.js, never on mainnet. */
 export const testTokens = {
   "31337": {
-    "address": "0x9fE46736679d2D9a65F0992F2272dE9f3c7fa6e0",
+    "address": "0xCf7Ed3AccA5a467e9e704C703E8D87F634fB0Fc9",
     "symbol": "HTT",
     "name": "Heirloom Test Token",
     "decimals": 18

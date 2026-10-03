@@ -1,5 +1,6 @@
 "use client";
 import type { ReactNode } from "react";
+import { useTranslations } from "next-intl";
 import { useQuery } from "@tanstack/react-query";
 import { heirloomAbi } from "@/lib/contract";
 import { useHeirloom } from "@/lib/hooks";
@@ -13,6 +14,7 @@ type Health = "ok" | "unreachable" | "no-contract" | "wrong-contract";
  * Without this, a restarted local chain or a stale page makes every read fail and the app just spins.
  */
 export function DeploymentGuard({ children }: { children: ReactNode }) {
+  const t = useTranslations("Deployment");
   const { chainId, publicClient, deployment } = useHeirloom();
 
   const health = useQuery<Health>({
@@ -42,11 +44,12 @@ export function DeploymentGuard({ children }: { children: ReactNode }) {
   if (health.data === undefined) return <ListSkeleton rows={2} />;
 
   const local = chainId === 31337;
-  const where = chainId !== undefined ? CHAIN_LABELS[chainId] ?? `chain ${chainId}` : "this network";
+  const where = chainId !== undefined ? CHAIN_LABELS[chainId] ?? t("chainFallback", { id: chainId }) : t("networkFallback");
+  const code = (c: ReactNode) => <code className="font-mono text-xs">{c}</code>;
   const message =
     health.data === "unreachable"
-      ? { title: `Can't reach ${where}`, body: local ? "The local chain isn't answering at http://127.0.0.1:8545." : "The network's RPC endpoint isn't answering. Check your connection and the RPC URL in the app's settings." }
-      : { title: `Heirloom isn't on ${where} at the expected address`, body: `This page expects Heirloom at ${deployment?.address}, but ${health.data === "no-contract" ? "nothing is deployed there" : "a different contract is there"}.` };
+      ? { title: t("unreachableTitle", { where }), body: local ? t("unreachableLocal") : t("unreachableRemote") }
+      : { title: t("missingTitle", { where }), body: t(health.data === "no-contract" ? "missingBodyNothing" : "missingBodyOther", { address: deployment?.address ?? "" }) };
 
   return (
     <div className="mx-auto max-w-xl pt-6" data-testid="deployment-problem" data-state={health.data}>
@@ -54,16 +57,16 @@ export function DeploymentGuard({ children }: { children: ReactNode }) {
         <p className="text-sm text-ink-2">{message.body}</p>
         {local ? (
           <ol className="list-decimal space-y-1.5 pl-5 text-sm text-ink-2">
-            <li>Stop any old <code className="font-mono text-xs">npm run dev</code> terminals, then start it once: <code className="font-mono text-xs">npm run dev</code> from the project folder.</li>
-            <li>Wait for <code className="font-mono text-xs">Heirloom deployed to …</code> in that terminal.</li>
-            <li>Reload this page (Ctrl+Shift+R). A restarted local chain starts empty and gets a fresh deployment, so this page must be reloaded to pick up the new address.</li>
+            <li>{t.rich("step1", { code })}</li>
+            <li>{t.rich("step2", { code })}</li>
+            <li>{t("step3")}</li>
           </ol>
         ) : (
-          <p className="text-sm text-ink-2">The deployment record in this build is out of date for this network. Redeploy, or rebuild the app with the current <code className="font-mono text-xs">contracts.ts</code>.</p>
+          <p className="text-sm text-ink-2">{t.rich("outdated", { code })}</p>
         )}
         <div className="flex gap-2">
-          <Btn onClick={() => health.refetch()} data-testid="deployment-retry">Check again</Btn>
-          <Btn tone="ghost" onClick={() => window.location.reload()}>Reload page</Btn>
+          <Btn onClick={() => health.refetch()} data-testid="deployment-retry">{t("checkAgain")}</Btn>
+          <Btn tone="ghost" onClick={() => window.location.reload()}>{t("reload")}</Btn>
         </div>
       </Card>
     </div>

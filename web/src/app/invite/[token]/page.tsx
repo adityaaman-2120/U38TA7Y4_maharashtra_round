@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import { getTranslations } from "next-intl/server";
 import InviteFlow from "@/components/AcceptInvite";
 
-export const metadata: Metadata = { title: "Heirloom — Invitation", robots: { index: false } };
+export async function generateMetadata(): Promise<Metadata> {
+  const t = await getTranslations("Meta");
+  return { title: t("inviteTitle"), robots: { index: false } };
+}
 
 export default async function InvitePage(props: PageProps<"/invite/[token]">) {
   const { token: raw } = await props.params;

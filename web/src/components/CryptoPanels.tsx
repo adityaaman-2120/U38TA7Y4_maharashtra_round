@@ -1,5 +1,6 @@
 "use client";
-import { useState } from "react";
+import { useState, type ReactNode } from "react";
+import { useTranslations } from "next-intl";
 import { erc20Abi, isAddress, parseUnits, type Address } from "viem";
 import { NATIVE, type Asset } from "@/lib/contract";
 import { useHeirloom, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
@@ -32,11 +33,12 @@ function useWallet(token: Address | undefined) {
 
 /** Deposits an amount into a crypto asset: approves the token first when needed, then calls Heirloom. */
 function useDeposit() {
+  const t = useTranslations("Crypto");
   const send = useTx();
   const { deployment } = useHeirloom();
   return async (label: string, fn: "addCryptoAsset" | "topUp", args: unknown[], token: Address, amount: bigint, allowance: bigint | undefined) => {
     if (!isNative(token) && (allowance ?? 0n) < amount) {
-      if (!(await send("Approve token", "approve", [deployment!.address, amount], { to: token, abi: erc20Abi }))) return false;
+      if (!(await send(t("labelApprove"), "approve", [deployment!.address, amount], { to: token, abi: erc20Abi }))) return false;
     }
     return send(label, fn, args, { value: isNative(token) ? amount : undefined });
   };
@@ -71,36 +73,34 @@ export function useCryptoInput(input: CryptoInput) {
 }
 
 export function CryptoFields({ input, onChange }: { input: CryptoInput; onChange: (i: CryptoInput) => void }) {
+  const t = useTranslations("Crypto");
   const { chainId } = useHeirloom();
   const test = getTestToken(chainId);
   const r = useCryptoInput(input);
   return (
     <div className="space-y-3 rounded-lg border border-line bg-sunken/50 p-3" data-testid="crypto-fields">
-      <p className="text-xs text-muted">
-        The funds are locked in the Heirloom contract and released to the beneficiary only through the same guardian-approved claim as a file.
-        <b> Amounts and balances are public on the blockchain.</b> You can top up or withdraw until a claim is raised.
-      </p>
+      <p className="text-xs text-muted">{t.rich("note", { b: (c: ReactNode) => <b>{c}</b> })}</p>
       <div className="grid gap-3 sm:grid-cols-2">
-        <Label text="What to lock">
+        <Label text={t("whatToLock")}>
           <Select value={input.choice} onChange={(e) => onChange({ ...input, choice: e.target.value as CryptoInput["choice"] })} data-testid="crypto-token">
-            <option value="native">{nativeInfo(chainId).symbol} (native currency)</option>
-            {test && <option value="test">{test.symbol} (Heirloom test token)</option>}
-            <option value="custom">Another ERC-20 token…</option>
+            <option value="native">{t("nativeOption", { symbol: nativeInfo(chainId).symbol })}</option>
+            {test && <option value="test">{t("testOption", { symbol: test.symbol })}</option>}
+            <option value="custom">{t("customOption")}</option>
           </Select>
         </Label>
-        <Label text="Amount" hint={r.info && r.wallet ? `You hold ${fmtAmount(r.wallet.balance, r.info.decimals)} ${r.info.symbol}` : undefined}>
+        <Label text={t("amount")} hint={r.info && r.wallet ? t("youHold", { amount: fmtAmount(r.wallet.balance, r.info.decimals), symbol: r.info.symbol }) : undefined}>
           <Input inputMode="decimal" placeholder="0.0" value={input.amount} onChange={(e) => onChange({ ...input, amount: e.target.value })} data-testid="crypto-amount" />
         </Label>
       </div>
       {input.choice === "custom" && (
-        <Label text="Token contract address" hint={r.loading ? "Reading token…" : r.failed ? "That address is not an ERC-20 token on this network." : r.info ? `✓ ${r.info.symbol}, ${r.info.decimals} decimals` : undefined}>
+        <Label text={t("tokenAddress")} hint={r.loading ? t("reading") : r.failed ? t("notToken") : r.info ? t("tokenOk", { symbol: r.info.symbol, decimals: r.info.decimals }) : undefined}>
           <Input placeholder="0x…" value={input.custom} onChange={(e) => onChange({ ...input, custom: e.target.value.trim() })} data-testid="crypto-custom" />
         </Label>
       )}
       {input.choice === "test" && r.token && <Faucet token={r.token} />}
-      {r.amount !== null && r.wallet !== undefined && !r.enough && <p className="text-xs text-bad">Your wallet does not hold that much.</p>}
+      {r.amount !== null && r.wallet !== undefined && !r.enough && <p className="text-xs text-bad">{t("notEnough")}</p>}
       {r.info && r.token && !isNative(r.token) && r.amount !== null && (r.wallet?.allowance ?? 0n) < r.amount && (
-        <p className="text-xs text-muted">Depositing a token takes two wallet confirmations: first you approve exactly this amount, then you deposit it.</p>
+        <p className="text-xs text-muted">{t("twoConfirmations")}</p>
       )}
     </div>
   );
@@ -108,20 +108,22 @@ export function CryptoFields({ input, onChange }: { input: CryptoInput; onChange
 
 /** Test networks only: mints worthless test tokens so the crypto flow can be tried. */
 function Faucet({ token }: { token: Address }) {
+  const t = useTranslations("Crypto");
   const send = useTx();
   const [busy, setBusy] = useState(false);
   return (
-    <Btn tone="ghost" disabled={busy} data-testid="faucet" onClick={async () => { setBusy(true); await send("Get test tokens", "faucet", [], { to: token, abi: testTokenAbi }); setBusy(false); }}>
-      Get 1,000 test tokens (once an hour)
+    <Btn tone="ghost" disabled={busy} data-testid="faucet" onClick={async () => { setBusy(true); await send(t("labelFaucet"), "faucet", [], { to: token, abi: testTokenAbi }); setBusy(false); }}>
+      {t("faucet")}
     </Btn>
   );
 }
 
 /** Creates the asset. Returns whether it went through. */
 export function useCreateCrypto() {
+  const t = useTranslations("Crypto");
   const deposit = useDeposit();
   return (beneficiary: string, r: ReturnType<typeof useCryptoInput>, policy: unknown) =>
-    deposit("Lock funds", "addCryptoAsset", [beneficiary, r.token, r.amount, policy], r.token!, r.amount!, r.wallet?.allowance);
+    deposit(t("labelLock"), "addCryptoAsset", [beneficiary, r.token, r.amount, policy], r.token!, r.amount!, r.wallet?.allowance);
 }
 
 // ---------------------------------------------------------------------------------------------------------------------
@@ -135,6 +137,7 @@ export function AmountBadge({ asset }: { asset: Asset }) {
 }
 
 export function OwnerCryptoControls({ asset, bundle }: { asset: Asset; bundle: ClaimBundle | null }) {
+  const t = useTranslations("Crypto");
   const send = useTx();
   const deposit = useDeposit();
   const { info } = useTokenInfo(asset.token);
@@ -150,26 +153,26 @@ export function OwnerCryptoControls({ asset, bundle }: { asset: Asset; bundle: C
   };
 
   if (asset.released) {
-    return <p className="text-xs text-muted" data-testid="crypto-state">Released to the beneficiary. {info && asset.balance > 0n ? `${fmtAmount(asset.balance, info.decimals)} ${info.symbol} is waiting for them to withdraw.` : "They have withdrawn it."}</p>;
+    return <p className="text-xs text-muted" data-testid="crypto-state">{t("released")} {info && asset.balance > 0n ? t("waiting", { amount: `${fmtAmount(asset.balance, info.decimals)} ${info.symbol}` }) : t("withdrawn")}</p>;
   }
   return (
     <div className="space-y-2 rounded-lg bg-sunken p-3" data-testid="crypto-controls">
       <p className="text-sm text-ink">
-        Locked: <b data-testid="locked-balance">{info ? `${fmtAmount(asset.balance, info.decimals)} ${info.symbol}` : "…"}</b>
-        {!isNative(asset.token) && <span className="text-xs text-muted"> · token {shortAddr(asset.token)}</span>}
+        {t("locked")} <b data-testid="locked-balance">{info ? `${fmtAmount(asset.balance, info.decimals)} ${info.symbol}` : "…"}</b>
+        {!isNative(asset.token) && <span className="text-xs text-muted"> · {t("tokenSuffix", { address: shortAddr(asset.token) })}</span>}
       </p>
       {locked ? (
         <p className="text-xs text-warn" data-testid="crypto-locked">
-          A claim is open on this asset, so deposits and withdrawals are blocked. If this claim is not valid, cancel it below; the funds then unlock.
+          {t("claimOpen")}
         </p>
       ) : (
         <div className="flex flex-col gap-2 sm:flex-row">
-          <Input inputMode="decimal" placeholder={`Amount in ${info?.symbol ?? "…"}`} value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="crypto-manage-amount" />
+          <Input inputMode="decimal" placeholder={t("amountPlaceholder", { symbol: info?.symbol ?? "…" })} value={amount} onChange={(e) => setAmount(e.target.value)} data-testid="crypto-manage-amount" />
           <div className="flex gap-2">
             <Btn disabled={busy || value === null || (wallet !== undefined && value > wallet.balance)} data-testid="top-up"
-              onClick={() => run(() => deposit("Top up", "topUp", [BigInt(asset.id), value], asset.token, value!, wallet?.allowance))}>Top up</Btn>
+              onClick={() => run(() => deposit(t("labelTopUp"), "topUp", [BigInt(asset.id), value], asset.token, value!, wallet?.allowance))}>{t("topUp")}</Btn>
             <Btn tone="ghost" disabled={busy || value === null || value > asset.balance} data-testid="owner-withdraw"
-              onClick={() => run(() => send("Withdraw", "ownerWithdraw", [BigInt(asset.id), value]))}>Withdraw</Btn>
+              onClick={() => run(() => send(t("labelWithdraw"), "ownerWithdraw", [BigInt(asset.id), value]))}>{t("withdraw")}</Btn>
           </div>
         </div>
       )}
@@ -181,6 +184,7 @@ export function OwnerCryptoControls({ asset, bundle }: { asset: Asset; bundle: C
 // Beneficiary
 
 export function BeneficiaryCryptoPanel({ asset, bundle }: { asset: Asset; bundle: ClaimBundle | null }) {
+  const t = useTranslations("Crypto");
   const send = useTx();
   const { info } = useTokenInfo(asset.token);
   const [busy, setBusy] = useState(false);
@@ -189,18 +193,18 @@ export function BeneficiaryCryptoPanel({ asset, bundle }: { asset: Asset; bundle
   return (
     <div className="space-y-2 rounded-lg bg-sunken p-3" data-testid="crypto-benef">
       <p className="text-sm text-ink">
-        {asset.released ? (claimed ? "Withdrawn" : "Available to withdraw") : "Locked for you"}: <b data-testid="locked-balance">{claimed ? "all of it" : amount}</b>
-        {!isNative(asset.token) && <span className="text-xs text-muted"> · token {shortAddr(asset.token)}</span>}
+        {asset.released ? (claimed ? t("benWithdrawn") : t("benAvailable")) : t("benLocked")}: <b data-testid="locked-balance">{claimed ? t("allOfIt") : amount}</b>
+        {!isNative(asset.token) && <span className="text-xs text-muted"> · {t("tokenSuffix", { address: shortAddr(asset.token) })}</span>}
       </p>
       {!asset.released && (
         <p className="text-xs text-muted">
-          {claimOpen(bundle) ? "A claim is in progress. Once the guardians approve and the claim is finalized, you can withdraw." : "To receive this, raise a claim below. The guardians review it; the owner can still object during the challenge period."}
-          {" "}The owner can change the amount until a claim is raised.
+          {claimOpen(bundle) ? t("benClaimInProgress") : t("benHowTo")}
+          {" "}{t("benOwnerChanges")}
         </p>
       )}
       {asset.released && !claimed && (
-        <Btn disabled={busy} data-testid="withdraw" onClick={async () => { setBusy(true); await send("Withdraw funds", "withdraw", [BigInt(asset.id)]); setBusy(false); }}>
-          Withdraw {amount}
+        <Btn disabled={busy} data-testid="withdraw" onClick={async () => { setBusy(true); await send(t("labelWithdrawFunds"), "withdraw", [BigInt(asset.id)]); setBusy(false); }}>
+          {t("benWithdrawButton", { amount })}
         </Btn>
       )}
     </div>

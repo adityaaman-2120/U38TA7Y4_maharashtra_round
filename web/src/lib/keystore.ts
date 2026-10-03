@@ -1,5 +1,6 @@
 // Encryption keys never leave the browser unencrypted. The private key is sealed with an AES-256-GCM key
 // derived from the user's password via PBKDF2-SHA256 (600k iterations). Only the sealed blob is stored.
+import { rt } from "@/i18n/runtime";
 import { b64, unb64, generateKeypair, publicKeyOf } from "./crypto";
 
 export const PBKDF2_ITERATIONS = 600_000;
@@ -52,9 +53,9 @@ export async function unlockKeyBlob(blob: KeyBlob, password: string): Promise<Ui
       await crypto.subtle.decrypt({ name: "AES-GCM", iv: bs(unb64(blob.cipher.iv)), additionalData: bs(aad(blob.address, blob.publicKey)) }, key, bs(unb64(blob.cipher.ct)))
     );
   } catch {
-    throw new Error("Wrong password");
+    throw new Error(rt("Errors.wrongPassword"));
   }
-  if (publicKeyOf(secret).toLowerCase() !== blob.publicKey.toLowerCase()) throw new Error("Key file is corrupted");
+  if (publicKeyOf(secret).toLowerCase() !== blob.publicKey.toLowerCase()) throw new Error(rt("Errors.keyCorrupted"));
   return secret;
 }
 
@@ -63,13 +64,13 @@ export function parseKeyBlob(text: string): KeyBlob {
   try {
     b = JSON.parse(text);
   } catch {
-    throw new Error("Not a valid recovery file");
+    throw new Error(rt("Errors.notRecoveryFile"));
   }
   const ok =
     b?.v === 1 && /^0x[0-9a-f]{40}$/i.test(b.address) && /^0x04[0-9a-f]{128}$/i.test(b.publicKey) &&
     b.kdf?.name === "PBKDF2-SHA256" && Number.isInteger(b.kdf.iterations) && b.kdf.iterations >= PBKDF2_ITERATIONS &&
     typeof b.kdf.salt === "string" && b.cipher?.name === "AES-256-GCM" && typeof b.cipher.iv === "string" && typeof b.cipher.ct === "string";
-  if (!ok) throw new Error("Not a valid recovery file");
+  if (!ok) throw new Error(rt("Errors.notRecoveryFile"));
   return b;
 }
 

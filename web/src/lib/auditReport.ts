@@ -1,4 +1,7 @@
-import { EVENT_LABELS, summarize } from "./events";
+import { createTranslator } from "use-intl/core";
+import enMessages from "@/messages/en";
+import type { Translator } from "@/i18n/runtime";
+import { eventLabel, summarize } from "./events";
 import { explorerTxUrl, CHAIN_LABELS } from "./wagmi";
 import type { AuditEntry } from "./audit";
 
@@ -11,11 +14,13 @@ export type ReportInput = {
   contract: string;
   source: "indexer" | "chain";
   requestedBy: string;
-  filters: string[]; // human-readable, empty when none
+  filters: { type?: string; assetId?: string; claimId?: string; actor?: string }; // what the view was filtered by, if anything
 };
 
+// The report is a formal record and is always written in English: the PDF's built-in fonts cannot draw Devanagari or Bengali.
+const tr = createTranslator({ locale: "en", messages: enMessages }) as unknown as Translator;
 const FULL = { addr: (a: string) => a, hash: (h: string) => h };
-const utc = (unix?: number) => (unix === undefined ? "n/a" : new Date(unix * 1000).toISOString().replace("T", " ").slice(0, 19));
+const utc = (unix?: number) => (unix === undefined ? tr("Report.na") : new Date(unix * 1000).toISOString().replace("T", " ").slice(0, 19));
 // jsPDF's built-in fonts only cover Latin-1; keep the report to characters they can draw.
 const ascii = (s: string) => s.replace(/[\u2018\u2019]/g, "'").replace(/[\u201c\u201d]/g, '"').replace(/[\u2013\u2014]/g, "-").replace(/\u2026/g, "...").replace(/[^\x20-\x7e\n]/g, "?");
 const wrapHash = (h: string) => `${h.slice(0, 33)}\n${h.slice(33)}`; // 66 chars -> two lines that fit the column
@@ -25,19 +30,25 @@ export async function buildAuditReport(input: ReportInput) {
   const [{ jsPDF }, autoTableMod] = await Promise.all([import("jspdf"), import("jspdf-autotable")]);
   const autoTable = autoTableMod.default;
   const doc = new jsPDF({ orientation: "landscape", unit: "mm", format: "a4" });
-  const network = CHAIN_LABELS[input.chainId] ?? `Chain ${input.chainId}`;
+  const network = CHAIN_LABELS[input.chainId] ?? tr("Report.chainFallback", { id: input.chainId });
+  const filterText = [
+    input.filters.type && tr("Report.filterEvent", { label: eventLabel(input.filters.type, tr) }),
+    input.filters.assetId && tr("Report.filterAsset", { id: input.filters.assetId }),
+    input.filters.claimId && tr("Report.filterClaim", { id: input.filters.claimId }),
+    input.filters.actor && tr("Report.filterActor", { address: input.filters.actor }),
+  ].filter(Boolean) as string[];
   const generated = new Date().toISOString().replace("T", " ").slice(0, 19) + " UTC";
-  doc.setProperties({ title: "Heirloom audit report", subject: `Contract ${input.contract} on ${network}`, creator: "Heirloom" });
+  doc.setProperties({ title: tr("Report.title"), subject: tr("Report.subject", { contract: input.contract, network }), creator: "Heirloom" });
 
-  doc.setFont("helvetica", "bold").setFontSize(20).text("Heirloom audit report", 14, 18);
+  doc.setFont("helvetica", "bold").setFontSize(20).text(tr("Report.title"), 14, 18);
   doc.setFont("helvetica", "normal").setFontSize(9).setTextColor(90);
   const meta: [string, string][] = [
-    ["Generated", generated],
-    ["Network", `${network} (chain id ${input.chainId})`],
-    ["Contract", input.contract],
-    ["Requested by", input.requestedBy],
-    ["Data source", input.source === "indexer" ? "Heirloom indexer (a copy of the contract's events)" : "Read directly from the blockchain"],
-    ["Events in this report", `${input.rows.length} of ${input.total}${input.filters.length ? `  (filtered: ${input.filters.join("; ")})` : ""}`],
+    [tr("Report.generated"), generated],
+    [tr("Report.network"), tr("Report.networkValue", { network, chainId: input.chainId })],
+    [tr("Report.contract"), input.contract],
+    [tr("Report.requestedBy"), input.requestedBy],
+    [tr("Report.dataSource"), input.source === "indexer" ? tr("Report.sourceIndexer") : tr("Report.sourceChain")],
+    [tr("Report.events"), `${tr("Report.eventsCount", { shown: input.rows.length, total: input.total })}${filterText.length ? `  ${tr("Report.filtered", { filters: filterText.join("; ") })}` : ""}`],
   ];
   meta.forEach(([k, v], i) => {
     doc.setFont("helvetica", "bold").text(`${k}:`, 14, 26 + i * 5);
@@ -50,8 +61,8 @@ export async function buildAuditReport(input: ReportInput) {
   for (const r of input.rows) counts.set(r.entry.eventName, (counts.get(r.entry.eventName) ?? 0) + 1);
   autoTable(doc, {
     startY: 60,
-    head: [["Event", "Count"]],
-    body: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => [EVENT_LABELS[n]?.label ?? n, String(c)]),
+    head: [[tr("Report.colEvent"), tr("Report.colCount")]],
+    body: [...counts.entries()].sort((a, b) => b[1] - a[1]).map(([n, c]) => [eventLabel(n, tr), String(c)]),
     theme: "grid", styles: { fontSize: 8, cellPadding: 1.5 }, headStyles: { fillColor: [29, 74, 57] }, tableWidth: 80, margin: { left: 14 },
   });
 
@@ -59,12 +70,12 @@ export async function buildAuditReport(input: ReportInput) {
   const ordered = [...input.rows].sort((a, b) => Number(a.entry.blockNumber - b.entry.blockNumber) || a.entry.logIndex - b.entry.logIndex);
   type Cell = string;
   const body: Cell[][] = ordered.map((r) => {
-    const sender = r.actor ? `Sent by ${r.actor}` : "";
+    const sender = r.actor ? tr("Report.sentBy", { actor: r.actor }) : "";
     return [
       utc(r.time),
       String(r.entry.blockNumber),
-      EVENT_LABELS[r.entry.eventName]?.label ?? r.entry.eventName,
-      ascii(`${summarize(r.entry, undefined, FULL)}${sender ? `\n${sender}` : ""}`),
+      eventLabel(r.entry.eventName, tr),
+      ascii(`${summarize(r.entry, undefined, FULL, tr)}${sender ? `\n${sender}` : ""}`),
       wrapHash(r.entry.transactionHash),
     ];
   });
@@ -72,7 +83,7 @@ export async function buildAuditReport(input: ReportInput) {
 
   autoTable(doc, {
     startY: (doc as unknown as { lastAutoTable: { finalY: number } }).lastAutoTable.finalY + 10,
-    head: [["Time (UTC)", "Block", "Event", "Details", "Transaction hash"]],
+    head: [[tr("Report.colTime"), tr("Report.colBlock"), tr("Report.colEvent"), tr("Report.colDetails"), tr("Report.colHash")]],
     body,
     theme: "striped",
     styles: { fontSize: 7.5, cellPadding: 1.6, valign: "top", overflow: "linebreak" },
@@ -90,8 +101,8 @@ export async function buildAuditReport(input: ReportInput) {
   for (let i = 1; i <= pages; i++) {
     doc.setPage(i);
     doc.setFontSize(7.5).setTextColor(110).setFont("helvetica", "normal");
-    doc.text("Generated from the contract's public events. Verify any entry by opening its transaction hash on a block explorer.", 14, 203);
-    doc.text(`Page ${i} of ${pages}`, 283, 203, { align: "right" });
+    doc.text(tr("Report.footer"), 14, 203);
+    doc.text(tr("Report.page", { page: i, pages }), 283, 203, { align: "right" });
   }
   return doc;
 }

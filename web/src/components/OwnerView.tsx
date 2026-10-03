@@ -1,11 +1,13 @@
 "use client";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { isAddress, type Address } from "viem";
-import { EVIDENCE_TYPES } from "@/lib/contract";
+import { evidenceLabel } from "@/lib/contract";
 import { loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
 import { MAX_LETTER_CHARS, decryptFile, downloadBytes, eciesDecrypt, encryptFile, eciesEncrypt, fromHex, isLetter, letterTitle, letterToFile, splitKey, toHex } from "@/lib/crypto";
 import { fetchCiphertext, pinCiphertext, MAX_UPLOAD_BYTES } from "@/lib/storage";
-import { UNITS, fmtDuration, fmtTime, shortAddr, shortHash, type Unit } from "@/lib/format";
+import { rt } from "@/i18n/runtime";
+import { UNITS, fmtNumber, fmtDuration, fmtTime, shortAddr, shortHash, type Unit } from "@/lib/format";
 import { Badge, Btn, Card, EmptyState, Input, Label, ListSkeleton, Mono, Select, Stat, StatGrid } from "./ui";
 import { humanError } from "@/lib/errors";
 import { claimState } from "@/lib/hooks";
@@ -24,11 +26,12 @@ const MIN_SECONDS = 300;
 const PUBKEY_RE = /^0x04[0-9a-fA-F]{128}$/;
 
 function Duration({ value, unit, onChange, testId }: { value: number; unit: Unit; onChange: (v: number, u: Unit) => void; testId?: string }) {
+  const tf = useTranslations("Format");
   return (
     <div className="flex gap-2">
       <Input type="number" min={1} value={value} data-testid={testId} onChange={(e) => onChange(Number(e.target.value), unit)} />
       <Select value={unit} onChange={(e) => onChange(value, e.target.value as Unit)} className="!w-28">
-        {Object.keys(UNITS).map((u) => <option key={u}>{u}</option>)}
+        {(Object.keys(UNITS) as Unit[]).map((u) => <option key={u} value={u}>{tf(u)}</option>)}
       </Select>
     </div>
   );
@@ -47,7 +50,7 @@ function useRegistered(addresses: string[]) {
     !isAddress(a) ? "invalid" : q.data === undefined ? "checking" : q.data[a.toLowerCase()] ? "ok" : "unregistered";
 }
 
-const STATUS_TEXT = { invalid: "Not a valid address", checking: "Checking…", unregistered: "No encryption key registered yet", ok: "✓ Encryption key registered" };
+const STATUS_KEY = { invalid: "statusInvalid", checking: "statusChecking", unregistered: "statusUnregistered", ok: "statusOk" } as const;
 
 export default function OwnerView({ onGoPeople }: { onGoPeople?: () => void }) {
   const { address } = useHeirloom();
@@ -73,6 +76,7 @@ export default function OwnerView({ onGoPeople }: { onGoPeople?: () => void }) {
 }
 
 function CreateVault({ onGoPeople }: { onGoPeople?: () => void }) {
+  const t = useTranslations("Owner");
   const send = useTx();
   const contacts = useContacts("guardian");
   const people: Person[] = (contacts.data ?? []).map((c) => ({ address: c.invitee.address, name: c.invitee.name }));
@@ -97,54 +101,51 @@ function CreateVault({ onGoPeople }: { onGoPeople?: () => void }) {
 
   const submit = async () => {
     setBusy(true);
-    await send("Create vault", "createVault", [guardians, th, BigInt(seconds), requireVerified]);
+    await send(t("labelCreateVault"), "createVault", [guardians, th, BigInt(seconds), requireVerified]);
     setBusy(false);
   };
 
   return (
-    <Card title="Create your vault">
-      <p className="text-sm text-muted">
-        Choose 3–7 guardians from the people who have accepted your invitation. Guardians never see your files; together
-        (at the threshold) they can release the key to your beneficiaries when you are gone.
-      </p>
+    <Card title={t("createTitle")}>
+      <p className="text-sm text-muted">{t("createIntro")}</p>
       {!contacts.isLoading && people.length < 3 && (
-        <NoPeople message={`You have ${people.length} accepted guardian${people.length === 1 ? "" : "s"}; a vault needs at least 3. Invite people by email and ask them to accept.`} onGoPeople={onGoPeople} />
+        <NoPeople message={t("fewGuardians", { count: people.length })} onGoPeople={onGoPeople} />
       )}
       {guardians.map((g, i) => (
-        <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : self(i) ? "You cannot be your own guardian" : requireVerified && !ver.isVerified(g) ? "Not verified: this vault requires verified guardians" : STATUS_TEXT[status(g)]}>
+        <Label key={i} text={t("guardianN", { n: i + 1 })} hint={g === "" ? undefined : dup(i) ? t("duplicate") : self(i) ? t("selfGuardian") : requireVerified && !ver.isVerified(g) ? t("notVerifiedRequired") : t(STATUS_KEY[status(g)])}>
           <div className="flex gap-2">
-            <PersonSelect value={g} people={people} taken={guardians} placeholder="Choose a guardian…" testId={`guardian-${i}`} verified={ver.isVerified}
+            <PersonSelect value={g} people={people} taken={guardians} placeholder={t("chooseGuardian")} testId={`guardian-${i}`} verified={ver.isVerified}
               onChange={(v) => setGuardians(guardians.map((x, j) => (j === i ? v : x)))} />
-            {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>Remove</Btn>}
+            {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>{t("remove")}</Btn>}
           </div>
         </Label>
       ))}
-      {guardians.length < 7 && <Btn tone="ghost" onClick={() => setGuardians([...guardians, ""])}>+ Add guardian</Btn>}
+      {guardians.length < 7 && <Btn tone="ghost" onClick={() => setGuardians([...guardians, ""])}>{t("addGuardian")}</Btn>}
       {idOn && (
         <label className="flex items-start gap-2.5 rounded-lg border border-line bg-sunken/50 p-3 text-sm text-ink-2">
           <input type="checkbox" checked={requireVerified} onChange={(e) => setRequireVerified(e.target.checked)} className="mt-1" data-testid="require-verified" />
           <span>
-            <b className="text-ink">Require verified guardians.</b> Every guardian must have proved, with a zero-knowledge proof, that they are one real Aadhaar holder, so one
-            person cannot hold several guardian seats. Their Aadhaar data never leaves their browser.
+            <b className="text-ink">{t("requireVerifiedBold")}</b> {t("requireVerifiedBody")}
           </span>
         </label>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Label text="Guardians needed to reconstruct the key (threshold)">
+        <Label text={t("thresholdLabel")}>
           <Select value={th} onChange={(e) => setThreshold(Number(e.target.value))} data-testid="threshold">
-            {Array.from({ length: guardians.length - 1 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n} of {guardians.length}</option>)}
+            {Array.from({ length: guardians.length - 1 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{t("thresholdOption", { n, total: guardians.length })}</option>)}
           </Select>
         </Label>
-        <Label text="Check-in interval" hint="How often you promise to check in. Minimum 5 minutes.">
+        <Label text={t("intervalLabel")} hint={t("intervalHint")}>
           <Duration value={interval.v} unit={interval.u} onChange={(v, u) => setInterval_({ v, u })} testId="interval" />
         </Label>
       </div>
-      <Btn disabled={!valid || busy} onClick={submit} data-testid="create-vault">Create vault</Btn>
+      <Btn disabled={!valid || busy} onClick={submit} data-testid="create-vault">{t("createVault")}</Btn>
     </Card>
   );
 }
 
 function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
+  const t = useTranslations("Owner");
   const send = useTx();
   const now = useNow();
   const [busy, setBusy] = useState(false);
@@ -156,29 +157,30 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
     setBusy(false);
   };
   return (
-    <Card title="Your vault" right={vault.frozen ? <Badge tone="warn">Frozen</Badge> : <Badge tone="good">Active</Badge>}>
+    <Card title={t("vaultTitle")} right={vault.frozen ? <Badge tone="warn">{t("frozen")}</Badge> : <Badge tone="good">{t("active")}</Badge>}>
       <p className="text-sm text-ink-2">
-        Last check-in {fmtTime(vault.lastHeartbeat)} ·{" "}
-        {now < due ? <>next due in <b data-testid="next-due">{fmtDuration(due - now)}</b></> : <span className="text-warn">overdue by {fmtDuration(now - due)}</span>}
-        {" "}· interval {fmtDuration(vault.heartbeatInterval)}
+        {t("lastCheckIn", { time: fmtTime(vault.lastHeartbeat) })}{" "}
+        {now < due ? t.rich("nextDue", { duration: fmtDuration(due - now), b: (c) => <b data-testid="next-due">{c}</b> }) : <span className="text-warn">{t("overdueBy", { duration: fmtDuration(now - due) })}</span>}
+        {" "}{t("interval", { duration: fmtDuration(vault.heartbeatInterval) })}
       </p>
       <p className="flex flex-wrap items-center gap-2 text-sm text-muted">
-        Guardians (need {vault.threshold} of {vault.guardians.length}):
-        {vault.requireVerifiedGuardians && <Badge tone="info">Verified guardians required</Badge>}
+        {t("guardiansNeed", { need: vault.threshold, total: vault.guardians.length })}
+        {vault.requireVerifiedGuardians && <Badge tone="info">{t("verifiedRequiredBadge")}</Badge>}
       </p>
       <ul className="space-y-1">{vault.guardians.map((g) => <li key={g} className="flex flex-wrap items-center gap-2"><Mono>{g}</Mono><VerifiedBadge verified={ver.isVerified(g)} compact={!ver.enabled} /></li>)}</ul>
       <div className="flex flex-wrap gap-2">
-        <Btn disabled={busy} onClick={() => act("Check in", "heartbeat")} data-testid="heartbeat">I&apos;m alive</Btn>
+        <Btn disabled={busy} onClick={() => act(t("labelCheckIn"), "heartbeat")} data-testid="heartbeat">{t("imAlive")}</Btn>
         {vault.frozen
-          ? <Btn tone="ghost" disabled={busy} onClick={() => act("Unfreeze vault", "unfreeze")} data-testid="unfreeze">Unfreeze (counts as check-in)</Btn>
-          : <Btn tone="danger" disabled={busy} onClick={() => act("Freeze vault", "panicFreeze")} data-testid="freeze">Panic freeze</Btn>}
+          ? <Btn tone="ghost" disabled={busy} onClick={() => act(t("labelUnfreeze"), "unfreeze")} data-testid="unfreeze">{t("unfreeze")}</Btn>
+          : <Btn tone="danger" disabled={busy} onClick={() => act(t("labelFreeze"), "panicFreeze")} data-testid="freeze">{t("freeze")}</Btn>}
       </div>
-      {vault.frozen && <p className="text-xs text-warn">While frozen, no claim can be raised, approved or finalized.</p>}
+      {vault.frozen && <p className="text-xs text-warn">{t("frozenNote")}</p>}
     </Card>
   );
 }
 
 function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract").Vault; onGoPeople?: () => void }) {
+  const t = useTranslations("Owner");
   const send = useTx();
   const key = useKey();
   const { address, publicClient, deployment, chainId } = useHeirloom();
@@ -197,7 +199,7 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
   const ver = useVerifiedMap([...guardians, ...vault.guardians, ...(contacts.data ?? []).map((c) => c.invitee.address)]);
   // New guardians must be accepted contacts; guardians already on the vault stay selectable so they can be kept.
   const rotatePeople: Person[] = [
-    ...vault.guardians.map((g) => ({ address: g, name: known.get(g.toLowerCase()) ?? "Current guardian" })),
+    ...vault.guardians.map((g) => ({ address: g, name: known.get(g.toLowerCase()) ?? t("currentGuardian") })),
     ...(contacts.data ?? []).filter((c) => !vault.guardians.some((g) => g.toLowerCase() === c.invitee.address.toLowerCase())).map((c) => ({ address: c.invitee.address, name: c.invitee.name })),
   ];
   const lower = guardians.map((g) => g.toLowerCase());
@@ -216,22 +218,22 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
     let done = 0;
     try {
       // 1. Prove we can open every key BEFORE changing anything on-chain.
-      setStep(sealed.length ? "Unlocking your files' keys with your encryption key…" : "Preparing…");
+      setStep(sealed.length ? t("stepUnlocking") : t("stepPreparing"));
       const deks = sealed.map((a) => ({ id: a.id, dek: eciesDecrypt(key.getSecret(), fromHex(a.ownerWrappedKey)) }));
-      setStep("Reading the new guardians' public keys…");
+      setStep(t("stepReadingKeys"));
       const keys = await Promise.all(guardians.map((g) => readers.encryptionKey(publicClient, deployment.address, g as Address)));
-      if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error("A guardian's registered key is invalid");
+      if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error(t("invalidKey"));
       // 2. Split every key for the new set (pure computation).
-      setStep("Splitting each file's key for the new guardians…");
+      setStep(t("stepSplitting"));
       const prepared = [];
       for (const { id, dek } of deks) prepared.push({ id, ...(await reshareDek(dek, keys, th, key.publicKey)) });
       // 3. Replace the guardians (this also counts as a check-in), then store the new shares per file.
-      setStep("Confirm the guardian change in your wallet…");
-      if (!(await send("Replace guardians", "rotateGuardians", [guardians, th, requireVerified]))) throw new Error("The guardian change was not confirmed. Nothing was changed.");
+      setStep(t("stepConfirm"));
+      if (!(await send(t("labelReplace"), "rotateGuardians", [guardians, th, requireVerified]))) throw new Error(t("notConfirmed"));
       for (const p of prepared) {
-        setStep(`Re-sharing file ${++done} of ${prepared.length}…`);
-        const ok = await send(`Re-share asset #${p.id}`, "updateAssetShares", [BigInt(p.id), p.encShares, p.ownerWrapped]);
-        if (!ok) throw new Error(`Guardians were replaced, but asset #${p.id} was not re-shared yet. Use "Re-share to new guardians" on that file to finish.`);
+        setStep(t("stepResharing", { n: ++done, total: prepared.length }));
+        const ok = await send(t("labelReshare", { id: p.id }), "updateAssetShares", [BigInt(p.id), p.encShares, p.ownerWrapped]);
+        if (!ok) throw new Error(t("partialReshare", { id: p.id }));
       }
       setOpen(false);
     } catch (e) {
@@ -245,51 +247,49 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
   if (!open) {
     return (
       <div className="flex flex-wrap items-center justify-between gap-2 rounded-2xl border border-line bg-surface px-5 py-3">
-        <p className="text-sm text-ink-2">A guardian lost their key or stopped responding? You can replace them at any time.</p>
-        <Btn tone="ghost" onClick={() => setOpen(true)} data-testid="open-rotate">Replace guardians</Btn>
+        <p className="text-sm text-ink-2">{t("replacePrompt")}</p>
+        <Btn tone="ghost" onClick={() => setOpen(true)} data-testid="open-rotate">{t("replaceButton")}</Btn>
       </div>
     );
   }
   return (
-    <Card title="Replace guardians">
+    <Card title={t("replaceButton")}>
       <p className="text-sm text-muted">
-        This opens each file&apos;s key with your encryption key, splits it again for the new guardians, then updates the vault and every file on-chain.
-        It counts as a check-in (any open claim is voided).
-        {sealed.length > 0 ? ` ${sealed.length} sealed file${sealed.length === 1 ? "" : "s"} will be re-shared, which takes one wallet confirmation each.` : ""}
+        {t("replaceIntro")}
+        {sealed.length > 0 ? ` ${t("sealedNote", { count: sealed.length })}` : ""}
       </p>
       {!contacts.isLoading && (contacts.data?.length ?? 0) === 0 && (
-        <NoPeople message="To add a new guardian, invite them by email first and wait for them to accept." onGoPeople={onGoPeople} />
+        <NoPeople message={t("inviteFirst")} onGoPeople={onGoPeople} />
       )}
       {guardians.map((g, i) => (
-        <Label key={i} text={`Guardian ${i + 1}`} hint={g === "" ? undefined : dup(i) ? "Duplicate address" : requireVerified && !ver.isVerified(g) ? "Not verified: required by the policy below" : STATUS_TEXT[status(g)]}>
+        <Label key={i} text={t("guardianN", { n: i + 1 })} hint={g === "" ? undefined : dup(i) ? t("duplicate") : requireVerified && !ver.isVerified(g) ? t("notVerifiedPolicy") : t(STATUS_KEY[status(g)])}>
           <div className="flex gap-2">
-            <PersonSelect value={g} people={rotatePeople} taken={guardians} placeholder="Choose a guardian…" testId={`rotate-guardian-${i}`} verified={ver.isVerified}
+            <PersonSelect value={g} people={rotatePeople} taken={guardians} placeholder={t("chooseGuardian")} testId={`rotate-guardian-${i}`} verified={ver.isVerified}
               onChange={(v) => setGuardians(guardians.map((x, j) => (j === i ? v : x)))} />
-            {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>Remove</Btn>}
+            {guardians.length > 3 && <Btn tone="ghost" onClick={() => setGuardians(guardians.filter((_, j) => j !== i))}>{t("remove")}</Btn>}
           </div>
         </Label>
       ))}
-      {guardians.length < 7 && <Btn tone="ghost" onClick={() => setGuardians([...guardians, ""])}>+ Add guardian</Btn>}
+      {guardians.length < 7 && <Btn tone="ghost" onClick={() => setGuardians([...guardians, ""])}>{t("addGuardian")}</Btn>}
       {idOn && (
         <label className="flex items-start gap-2.5 rounded-lg border border-line bg-sunken/50 p-3 text-sm text-ink-2">
           <input type="checkbox" checked={requireVerified} onChange={(e) => setRequireVerified(e.target.checked)} className="mt-1" data-testid="rotate-require-verified" />
-          <span><b className="text-ink">Require verified guardians.</b> Applies to this set and to later changes.</span>
+          <span><b className="text-ink">{t("requireVerifiedBold")}</b> {t("requireVerifiedRotate")}</span>
         </label>
       )}
-      <Label text="Threshold">
+      <Label text={t("threshold")}>
         <Select value={th} onChange={(e) => setThreshold(Number(e.target.value))}>
-          {Array.from({ length: guardians.length - 1 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{n} of {guardians.length}</option>)}
+          {Array.from({ length: guardians.length - 1 }, (_, i) => i + 2).map((n) => <option key={n} value={n}>{t("thresholdOption", { n, total: guardians.length })}</option>)}
         </Select>
       </Label>
       {overAsked.length > 0 && (
         <p className="rounded-lg bg-warn-soft px-3 py-2 text-xs text-warn" data-testid="rotate-warning">
-          {overAsked.map((a) => `Asset #${a.id}`).join(", ")} {overAsked.length === 1 ? "asks" : "ask"} for more approvals than the new set has guardians, so a claim on {overAsked.length === 1 ? "it" : "them"} could only
-          finish after its attestation deadline, when the guardian threshold alone is enough.
+          {t("overAsked", { assets: overAsked.map((a) => t("assetRef", { id: a.id })).join(", "), count: overAsked.length })}
         </p>
       )}
       <div className="flex flex-wrap items-center gap-2">
-        <Btn disabled={!valid || busy || owned.isLoading} data-testid="rotate-submit" onClick={submit}>{busy ? step || "Working…" : "Replace guardians"}</Btn>
-        <Btn tone="ghost" disabled={busy} onClick={() => setOpen(false)}>Cancel</Btn>
+        <Btn disabled={!valid || busy || owned.isLoading} data-testid="rotate-submit" onClick={submit}>{busy ? step || t("working") : t("replaceButton")}</Btn>
+        <Btn tone="ghost" disabled={busy} onClick={() => setOpen(false)}>{t("cancel")}</Btn>
       </div>
       {error && <p className="text-sm text-bad" data-testid="rotate-error">{error}</p>}
     </Card>
@@ -297,6 +297,7 @@ function GuardianManager({ vault, onGoPeople }: { vault: import("@/lib/contract"
 }
 
 function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vault; onGoPeople?: () => void }) {
+  const t = useTranslations("Owner");
   const send = useTx();
   const beneficiaries = useContacts("beneficiary");
   const benPeople: Person[] = (beneficiaries.data ?? []).map((c) => ({ address: c.invitee.address, name: c.invitee.name }));
@@ -371,19 +372,19 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
     setBusy(true);
     setError("");
     try {
-      setProgress("Reading guardian public keys…");
+      setProgress(t("progReadingKeys"));
       const keys = await Promise.all(vault.guardians.map((g) => readers.encryptionKey(publicClient, deployment.address, g)));
-      if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error("A guardian's registered key is invalid");
-      setProgress(kind === "letter" ? "Encrypting letter in your browser…" : "Encrypting file in your browser…");
+      if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error(t("invalidKey"));
+      setProgress(kind === "letter" ? t("progEncryptLetter") : t("progEncryptFile"));
       const { cipher, dek, plaintextHash } = await encryptFile(file);
-      setProgress("Uploading ciphertext…");
+      setProgress(t("progUploading"));
       const cid = await pinCiphertext(cipher);
-      setProgress("Splitting the key and encrypting each share to its guardian…");
+      setProgress(t("progSplitting"));
       const shares = await splitKey(dek, vault.guardians.length, vault.threshold);
       const encShares = shares.map((s, i) => toHex(eciesEncrypt(keys[i], s)));
       const ownerWrapped = toHex(eciesEncrypt(key.publicKey, dek));
-      setProgress("Waiting for wallet…");
-      const ok = await send("Add asset", "addAsset", [beneficiary, cid, plaintextHash, encShares, ownerWrapped, policyArgs()]);
+      setProgress(t("progWallet"));
+      const ok = await send(t("labelAddAsset"), "addAsset", [beneficiary, cid, plaintextHash, encShares, ownerWrapped, policyArgs()]);
       if (ok) {
         setFile(null);
         setLetterText("");
@@ -399,79 +400,79 @@ function UploadCard({ vault, onGoPeople }: { vault: import("@/lib/contract").Vau
   };
 
   return (
-    <Card title="Reserve something for a beneficiary">
-      <div className="inline-flex rounded-lg border border-line-strong bg-sunken p-0.5 text-sm" role="tablist" aria-label="What to reserve">
+    <Card title={t("reserveTitle")}>
+      <div className="inline-flex rounded-lg border border-line-strong bg-sunken p-0.5 text-sm" role="tablist" aria-label={t("reserveWhat")}>
         {(["file", "letter", "crypto"] as const).map((k) => (
           <button key={k} role="tab" aria-selected={kind === k} onClick={() => setKind(k)} data-testid={`kind-${k}`}
             className={`rounded-md px-3 py-1.5 font-medium ${kind === k ? "bg-surface text-ink shadow-sm" : "text-muted hover:text-ink"}`}>
-            {k === "file" ? "A file" : k === "letter" ? "A final letter" : "Crypto"}
+            {k === "file" ? t("tabFile") : k === "letter" ? t("tabLetter") : t("tabCrypto")}
           </button>
         ))}
       </div>
       {kind === "crypto" ? (
         <CryptoFields input={crypto} onChange={setCrypto} />
       ) : kind === "file" ? (
-        <Label text="File (encrypted in your browser before upload, max ~17 MB)">
+        <Label text={t("fileLabel")}>
           <input type="file" data-testid="asset-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
         </Label>
       ) : (
         <div className="space-y-3">
-          <Label text="Title (optional)"><Input value={letterName} onChange={(e) => setLetterName(e.target.value)} maxLength={80} placeholder="e.g. For Priya" data-testid="letter-title" /></Label>
-          <Label text="Your letter" hint={`${letterText.length.toLocaleString()} / ${MAX_LETTER_CHARS.toLocaleString()} characters. Encrypted in your browser; the beneficiary reads it on screen after release.`}>
+          <Label text={t("letterTitleLabel")}><Input value={letterName} onChange={(e) => setLetterName(e.target.value)} maxLength={80} placeholder={t("letterTitlePlaceholder")} data-testid="letter-title" /></Label>
+          <Label text={t("letterLabel")} hint={t("letterHint", { chars: fmtNumber(letterText.length), max: fmtNumber(MAX_LETTER_CHARS) })}>
             <textarea value={letterText} maxLength={MAX_LETTER_CHARS} onChange={(e) => setLetterText(e.target.value)} rows={8} data-testid="letter-text"
-              className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent" placeholder="Write what you want them to read…" />
+              className="w-full rounded-lg border border-line-strong bg-surface px-3 py-2 text-sm text-ink placeholder:text-faint focus:border-accent" placeholder={t("letterPlaceholder")} />
           </Label>
         </div>
       )}
-      {tooBig && <p className="text-xs text-bad">File is too large.</p>}
+      {tooBig && <p className="text-xs text-bad">{t("fileTooBig")}</p>}
       {!beneficiaries.isLoading && benPeople.length === 0 && (
-        <NoPeople message="You have no accepted beneficiaries yet. Invite the person by email; once they accept, you can reserve files for them." onGoPeople={onGoPeople} />
+        <NoPeople message={t("noBeneficiaries")} onGoPeople={onGoPeople} />
       )}
-      <Label text="Beneficiary" hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? "You cannot be your own beneficiary" : kind === "crypto" ? (isAddress(beneficiary) ? undefined : STATUS_TEXT.invalid) : STATUS_TEXT[status(beneficiary)]}>
-        <PersonSelect value={beneficiary} people={benPeople} placeholder="Choose a beneficiary…" testId="beneficiary" onChange={setBeneficiary} verified={benVer.isVerified} />
+      <Label text={t("beneficiary")} hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? t("selfBeneficiary") : kind === "crypto" ? (isAddress(beneficiary) ? undefined : t("statusInvalid")) : t(STATUS_KEY[status(beneficiary)])}>
+        <PersonSelect value={beneficiary} people={benPeople} placeholder={t("chooseBeneficiary")} testId="beneficiary" onChange={setBeneficiary} verified={benVer.isVerified} />
       </Label>
       {idOn && (
         <div className="space-y-2 rounded-lg border border-line bg-sunken/50 p-3 text-sm text-ink-2">
-          <p className="font-medium text-ink">Identity checks for the beneficiary (optional)</p>
+          <p className="font-medium text-ink">{t("identityHeading")}</p>
           <label className="flex items-start gap-2.5">
             <input type="checkbox" checked={requireZK} onChange={(e) => setRequireZK(e.target.checked)} className="mt-1" data-testid="require-zk" />
-            <span>Require a fresh identity proof to raise a claim: only the verified person behind this wallet can start it.</span>
+            <span>{t("requireZk")}</span>
           </label>
           <label className="flex items-start gap-2.5">
             <input type="checkbox" checked={requireAge} onChange={(e) => setRequireAge(e.target.checked)} className="mt-1" data-testid="require-age" />
-            <span>Require proof that the beneficiary is over 18 to finalize. Only that single fact is proven; no date of birth is stored.</span>
+            <span>{t("requireAge")}</span>
           </label>
           {(requireZK || requireAge) && beneficiary !== "" && !benVer.isVerified(beneficiary) && (
-            <p className="text-xs text-warn" data-testid="beneficiary-unverified">This beneficiary has not verified an identity yet. Ask them to verify first (Account page).</p>
+            <p className="text-xs text-warn" data-testid="beneficiary-unverified">{t("beneficiaryUnverified")}</p>
           )}
         </div>
       )}
       <div className="grid gap-3 sm:grid-cols-2">
-        <Label text="Guardian approvals required">
+        <Label text={t("approvalsLabel")}>
           <Select value={approvals} onChange={(e) => setApprovals(Number(e.target.value))} data-testid="approvals">
-            {Array.from({ length: vault.guardians.length - vault.threshold + 1 }, (_, i) => vault.threshold + i).map((n) => <option key={n} value={n}>{n} of {vault.guardians.length}</option>)}
+            {Array.from({ length: vault.guardians.length - vault.threshold + 1 }, (_, i) => vault.threshold + i).map((n) => <option key={n} value={n}>{t("thresholdOption", { n, total: vault.guardians.length })}</option>)}
           </Select>
         </Label>
-        <Label text="Accepted evidence">
+        <Label text={t("evidenceLabel")}>
           <Select value={evidence} onChange={(e) => setEvidence(Number(e.target.value))}>
-            {EVIDENCE_TYPES.map((t, i) => <option key={t} value={i}>{i === 2 ? "Death or incapacity" : t}</option>)}
+            {[0, 1, 2].map((i) => <option key={i} value={i}>{i === 2 ? rt("Evidence.anyOption") : evidenceLabel(i)}</option>)}
           </Select>
         </Label>
-        <Label text="Minimum inactivity before a claim" hint="Owner silence required (min 5 minutes)">
+        <Label text={t("inactivityLabel")} hint={t("inactivityHint")}>
           <Duration value={inactivity.v} unit={inactivity.u} onChange={(v, u) => setInactivity({ v, u })} testId="inactivity" />
         </Label>
-        <Label text="Challenge period" hint="Time you have to object after a claim (min 5 minutes)">
+        <Label text={t("challengeLabel")} hint={t("challengeHint")}>
           <Duration value={challenge.v} unit={challenge.u} onChange={(v, u) => setChallenge({ v, u })} testId="challenge" />
         </Label>
-        <Label text="Attestation deadline" hint="After this, the guardian threshold alone suffices (min 5 minutes)">
+        <Label text={t("deadlineLabel")} hint={t("deadlineHint")}>
           <Duration value={deadline.v} unit={deadline.u} onChange={(v, u) => setDeadline({ v, u })} testId="deadline" />
         </Label>
-        <Label text="Unlock not before (optional)">
+        <Label text={t("unlockLabel")}>
           <Input type="datetime-local" value={unlock} onChange={(e) => setUnlock(e.target.value)} />
         </Label>
       </div>
-      {!periodsOk && <p className="text-xs text-bad">Every period must be at least 5 minutes.</p>}
-      <Btn disabled={!valid || busy} onClick={submit} data-testid="add-asset">{busy ? progress || "Working…" : kind === "crypto" ? "Lock funds & reserve" : kind === "letter" ? "Encrypt letter & reserve" : "Encrypt & reserve"}</Btn>
+      {!periodsOk && <p className="text-xs text-bad">{t("periodsTooShort")}</p>}
+      <Btn disabled={!valid || busy} onClick={submit} data-testid="add-asset">{busy ? progress || t("working") : kind === "crypto" ? t("submitCrypto") : kind === "letter" ? t("submitLetter") : t("submitFile")}</Btn>
       {error && <p className="text-sm text-bad">{error}</p>}
     </Card>
   );
@@ -490,20 +491,22 @@ function useOwnerAssets() {
 }
 
 function OwnerStats({ vault }: { vault: import("@/lib/contract").Vault }) {
+  const t = useTranslations("Owner");
   const list = useOwnerAssets();
   const now = useNow();
   const open = (list.data ?? []).filter((r) => r.bundle && claimState(r.bundle).open).length;
   const due = vault.lastHeartbeat + vault.heartbeatInterval;
   return (
     <StatGrid>
-      <Stat label="Reserved assets" value={list.isLoading ? "…" : list.data?.length ?? 0} />
-      <Stat label="Open claims" value={list.isLoading ? "…" : open} tone={open ? "bad" : "good"} />
-      <Stat label="Next check-in" value={now < due ? fmtDuration(due - now) : "Overdue"} tone={now < due ? "info" : "warn"} />
+      <Stat label={t("statAssets")} value={list.isLoading ? "…" : list.data?.length ?? 0} />
+      <Stat label={t("statOpenClaims")} value={list.isLoading ? "…" : open} tone={open ? "bad" : "good"} />
+      <Stat label={t("statNextCheckIn")} value={now < due ? fmtDuration(due - now) : t("overdue")} tone={now < due ? "info" : "warn"} />
     </StatGrid>
   );
 }
 
 function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
+  const t = useTranslations("Owner");
   const send = useTx();
   const key = useKey();
   const { publicClient, deployment } = useHeirloom();
@@ -529,13 +532,13 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   const openMine = (asset: import("@/lib/contract").Asset) => guard(asset.id, async () => {
     const dek = eciesDecrypt(key.getSecret(), fromHex(asset.ownerWrappedKey));
     const { name, data, hash } = await decryptFile(await fetchCiphertext(asset.storageId), dek);
-    if (hash.toLowerCase() !== asset.contentHash.toLowerCase()) throw new Error("Decrypted file does not match the on-chain hash");
+    if (hash.toLowerCase() !== asset.contentHash.toLowerCase()) throw new Error(t("hashMismatch"));
     if (isLetter(name)) {
       setLetters((l) => ({ ...l, [asset.id]: { title: letterTitle(name), text: new TextDecoder().decode(data) } }));
-      return "Integrity verified: your letter matches the on-chain hash.";
+      return t("verifiedLetterOwn");
     }
     downloadBytes(name, data);
-    return `Integrity verified: "${name}" matches the on-chain hash.`;
+    return t("verifiedFileOwn", { name });
   });
 
   // After guardians change, re-split the same key to the new guardian set. Needs only the owner's key.
@@ -543,35 +546,35 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
     if (!publicClient || !deployment) return;
     const dek = eciesDecrypt(key.getSecret(), fromHex(asset.ownerWrappedKey));
     const keys = await Promise.all(vault.guardians.map((g) => readers.encryptionKey(publicClient, deployment.address, g)));
-    if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error("A guardian's registered key is invalid");
+    if (keys.some((k) => !PUBKEY_RE.test(k))) throw new Error(t("invalidKey"));
     const { encShares, ownerWrapped } = await reshareDek(dek, keys, vault.threshold, key.publicKey);
-    await send("Re-share asset", "updateAssetShares", [BigInt(asset.id), encShares, ownerWrapped]);
+    await send(t("labelReshareShort"), "updateAssetShares", [BigInt(asset.id), encShares, ownerWrapped]);
   });
 
   return (
-    <Card title="Reserved assets">
+    <Card title={t("assetsTitle")}>
       {list.isLoading && <ListSkeleton rows={2} />}
-      {list.isError && <p className="text-sm text-bad">Could not load your files. Retrying…</p>}
-      {list.data?.length === 0 && <EmptyState title="Nothing reserved yet" hint="Reserve a file above. It is encrypted in your browser and only your chosen beneficiary can ever open it." />}
+      {list.isError && <p className="text-sm text-bad">{t("assetsLoadFailed")}</p>}
+      {list.data?.length === 0 && <EmptyState title={t("assetsEmptyTitle")} hint={t("assetsEmptyHint")} />}
       {[...(list.data ?? [])].reverse().map(({ asset, bundle }) => (
         <div key={asset.id} className="space-y-2 rounded-lg border border-line p-3 text-sm text-ink-2" data-testid={`asset-${asset.id}`}>
           <div className="flex flex-wrap items-center gap-2">
-            <b>Asset #{asset.id}</b> → {shortAddr(asset.beneficiary)}
+            {t.rich("assetTo", { id: asset.id, who: shortAddr(asset.beneficiary), b: (c) => <b>{c}</b> })}
             {asset.kind === "crypto" && <AmountBadge asset={asset} />}
-            {asset.released && <Badge tone="good">Released</Badge>}
+            {asset.released && <Badge tone="good">{t("released")}</Badge>}
             <VerifiedBadge verified={benVer.isVerified(asset.beneficiary)} compact={!benVer.enabled} />
-            {asset.policy.requireBeneficiaryZK && <Badge tone="info">Identity proof to claim</Badge>}
-            {asset.policy.requireAge18 && <Badge tone="info">Over-18 proof to finalize</Badge>}
-            {asset.kind === "data" && !asset.released && asset.sharesEpoch !== vault.epoch && <Badge tone="warn">Needs re-share</Badge>}
+            {asset.policy.requireBeneficiaryZK && <Badge tone="info">{t("proofToClaim")}</Badge>}
+            {asset.policy.requireAge18 && <Badge tone="info">{t("proofToFinalize")}</Badge>}
+            {asset.kind === "data" && !asset.released && asset.sharesEpoch !== vault.epoch && <Badge tone="warn">{t("needsReshare")}</Badge>}
           </div>
           <p className="text-xs text-muted">
-            {asset.kind === "data" ? `ciphertext ${shortHash(asset.storageId, 6)} · hash ${shortHash(asset.contentHash, 6)} · ` : "crypto · "}{asset.policy.requiredApprovals} approvals · challenge {fmtDuration(asset.policy.challengePeriod)} · inactivity {fmtDuration(asset.policy.minInactivity)}
+            {t(asset.kind === "data" ? "assetLineData" : "assetLineCrypto", { cid: shortHash(asset.storageId, 6), hash: shortHash(asset.contentHash, 6), approvals: asset.policy.requiredApprovals, challenge: fmtDuration(asset.policy.challengePeriod), inactivity: fmtDuration(asset.policy.minInactivity) })}
           </p>
           {asset.kind === "crypto" ? <OwnerCryptoControls asset={asset} bundle={bundle} /> : (
             <div className="flex flex-wrap gap-2">
-              <Btn tone="ghost" disabled={busy} data-testid="open-mine" onClick={() => openMine(asset)}>Open my copy</Btn>
+              <Btn tone="ghost" disabled={busy} data-testid="open-mine" onClick={() => openMine(asset)}>{t("openMine")}</Btn>
               {!asset.released && asset.sharesEpoch !== vault.epoch && (
-                <Btn disabled={busy} data-testid="reshare" onClick={() => reshare(asset)}>Re-share to new guardians</Btn>
+                <Btn disabled={busy} data-testid="reshare" onClick={() => reshare(asset)}>{t("reshare")}</Btn>
               )}
             </div>
           )}
@@ -580,8 +583,8 @@ function AssetsCard({ vault }: { vault: import("@/lib/contract").Vault }) {
           {bundle && (
             <ClaimInfo bundle={bundle} evidence>
               {bundle.claim.status === 1 && (
-                <Btn tone="danger" disabled={busy} data-testid="cancel-claim" onClick={async () => { setBusy(true); await send("Cancel claim", "cancelClaim", [BigInt(bundle.claim.id)]); setBusy(false); }}>
-                  Cancel claim
+                <Btn tone="danger" disabled={busy} data-testid="cancel-claim" onClick={async () => { setBusy(true); await send(t("labelCancelClaim"), "cancelClaim", [BigInt(bundle.claim.id)]); setBusy(false); }}>
+                  {t("cancelClaim")}
                 </Btn>
               )}
             </ClaimInfo>

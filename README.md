@@ -62,6 +62,20 @@ npm --prefix contracts run deploy:token:amoy
 The script writes `contracts/deployments/tokens/amoy.json` and regenerates `web/src/lib/contracts.ts`, so the Crypto tab offers HTT and a
 "Get 1,000 test tokens" button on that network. (Local `npm run dev` deploys one automatically.) Commit the `tokens/amoy.json` record so everyone uses the same token.
 
+## Languages (English, Hindi, Bengali)
+The whole interface is translated with [next-intl](https://next-intl.dev): the landing and Security pages, every screen of the app, toasts, error messages, audit
+event text and dates. Use the language switcher in the header; the choice is stored in the `NEXT_LOCALE` cookie (a year), so it survives reloads and sign-outs.
+Until someone chooses, the browser's `Accept-Language` decides (English if it is none of the three).
+
+* **Catalogues** live in `web/src/messages/<en|hi|bn>/<area>.json`. English is the source; message keys are type-checked against it, so a typo is a compile error.
+* **`npm --prefix web run lint`** also runs `scripts/i18n.mjs check`: every language must have exactly the English keys with the same `{placeholders}` and `<tags>`
+  (parsed with the real ICU parser), and no text-bearing attribute (`placeholder`, `title`, `aria-label`...) may be a literal. ESLint's `react/jsx-no-literals`
+  rejects any literal text in JSX, so a string cannot be added without going through the catalogue. After adding a message file run `node web/scripts/i18n.mjs index`.
+* **Adding a language:** add it to `web/src/i18n/config.ts`, `scripts/i18n.mjs` and `request.ts`, then translate each `en/*.json`.
+* **Fonts:** Noto Sans Devanagari and Bengali are loaded for those scripts.
+* **Not translated, on purpose:** the PDF audit report (its built-in fonts cannot draw Devanagari or Bengali, so it is always English); text produced by the backend
+  (emails, notification bodies, API validation messages); proper nouns (Heirloom, MetaMask, network names) and the browser's own controls (file picker, date picker).
+
 ## Checks
 ```bash
 npm test                          # contract tests

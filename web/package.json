@@ -6,7 +6,7 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "eslint src",
+    "lint": "eslint src && node scripts/i18n.mjs check",
     "typecheck": "tsc --noEmit"
   },
   "dependencies": {
@@ -18,6 +18,7 @@
     "jspdf-autotable": "^5.0.8",
     "jsqr": "^1.4.0",
     "next": "16.3.8",
+    "next-intl": "^4.14.9",
     "react": "19.2.8",
     "react-dom": "19.2.8",
     "shamir-secret-sharing": "^0.0.4",

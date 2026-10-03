@@ -1,4 +1,5 @@
 "use client";
+import { useTranslations } from "next-intl";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 
 export function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
@@ -50,8 +51,9 @@ export function Empty({ children }: { children: ReactNode }) {
 export const Skeleton = ({ className = "" }: { className?: string }) => <div aria-hidden className={`animate-pulse rounded-lg bg-sunken ${className}`} />;
 
 export function ListSkeleton({ rows = 3 }: { rows?: number }) {
+  const t = useTranslations("Common");
   return (
-    <div className="space-y-2" role="status" aria-label="Loading">
+    <div className="space-y-2" role="status" aria-label={t("loading")}>
       {Array.from({ length: rows }, (_, i) => (
         <div key={i} className="space-y-2 rounded-2xl border border-line bg-surface p-4">
           <Skeleton className="h-4 w-1/3" />

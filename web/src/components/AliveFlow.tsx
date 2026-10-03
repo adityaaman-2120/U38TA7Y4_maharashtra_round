@@ -2,6 +2,7 @@
 import Link from "next/link";
 import { useState } from "react";
 import { useQuery } from "@tanstack/react-query";
+import { useTranslations } from "next-intl";
 import { useSwitchChain } from "wagmi";
 import { ApiError, aliveApi, type AliveProblem, type AlivePreview } from "@/lib/api";
 import { loadClaimBundle, useHeirloom, useRead, useTx } from "@/lib/hooks";
@@ -10,13 +11,6 @@ import { fmtDuration, fmtTime, shortAddr } from "@/lib/format";
 import { useNow } from "@/lib/hooks";
 import { Btn, Card } from "./ui";
 import { Header, WalletShell } from "./App";
-
-const PROBLEM_TEXT: Record<AliveProblem, string> = {
-  invalid: "This link is not valid. It may have been copied incompletely.",
-  used: "This link has already been used. If you checked in with it, the claim is cancelled.",
-  closed: "This claim is no longer open, so there is nothing left to cancel with this link.",
-  expired: "This link expired when the challenge period ended. You can still open Heirloom and check in from there if the claim has not been finalized.",
-};
 
 function Frame({ children }: { children: React.ReactNode }) {
   return (
@@ -29,10 +23,11 @@ function Frame({ children }: { children: React.ReactNode }) {
 
 /** The page behind the "I'm alive" link in a claim alert: connect the owner's wallet, press one button, the claim is void. */
 export default function AliveFlow({ claim, token }: { claim: string; token: string }) {
+  const t = useTranslations("Alive");
   const preview = useQuery({ queryKey: ["alive-preview", claim, token], queryFn: () => aliveApi.preview(claim, token), retry: false, refetchOnWindowFocus: false });
 
   if (!claim || !token) return <Problem reason="invalid" />;
-  if (preview.isLoading) return <Frame><p className="text-muted">Checking your link…</p></Frame>;
+  if (preview.isLoading) return <Frame><p className="text-muted">{t("checking")}</p></Frame>;
   if (preview.isError || !preview.data) {
     const reason = ((preview.error as ApiError | undefined)?.body as { reason?: AliveProblem } | undefined)?.reason;
     if (preview.error instanceof ApiError && preview.error.status === 0) return <Frame><p className="text-bad">{preview.error.message}</p></Frame>;
@@ -46,16 +41,18 @@ export default function AliveFlow({ claim, token }: { claim: string; token: stri
 }
 
 function Problem({ reason }: { reason: AliveProblem }) {
+  const t = useTranslations("Alive");
   return (
     <Frame>
-      <h1 className="font-display text-4xl leading-tight text-ink" data-testid="alive-problem" data-reason={reason}>This link can&apos;t be used</h1>
-      <p className="mt-3 text-ink-2">{PROBLEM_TEXT[reason]}</p>
-      <p className="mt-5 flex gap-4 text-sm"><Link href="/app" className="text-accent underline">Open Heirloom</Link><Link href="/" className="text-muted underline">Home</Link></p>
+      <h1 className="font-display text-4xl leading-tight text-ink" data-testid="alive-problem" data-reason={reason}>{t("problemTitle")}</h1>
+      <p className="mt-3 text-ink-2">{t(`problem.${reason}`)}</p>
+      <p className="mt-5 flex gap-4 text-sm"><Link href="/app" className="text-accent underline">{t("openHeirloom")}</Link><Link href="/" className="text-muted underline">{t("home")}</Link></p>
     </Frame>
   );
 }
 
 function CheckIn({ data, claim, token }: { data: AlivePreview; claim: string; token: string }) {
+  const t = useTranslations("Alive");
   const { address, chainId } = useHeirloom();
   const { mutate: switchChain } = useSwitchChain();
   const send = useTx();
@@ -89,7 +86,7 @@ function CheckIn({ data, claim, token }: { data: AlivePreview; claim: string; to
     setBusy(true);
     setError("");
     try {
-      await send("Check in", "heartbeat"); // on success the claim read refreshes, which starts the retirement above
+      await send(t("txLabel"), "heartbeat"); // on success the claim read refreshes, which starts the retirement above
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     } finally {
@@ -97,21 +94,22 @@ function CheckIn({ data, claim, token }: { data: AlivePreview; claim: string; to
     }
   };
 
+  const chainName = CHAIN_LABELS[data.chain_id] ?? t("chainFallback", { id: data.chain_id });
   if (!rightChain) {
     return (
       <div className="mx-auto max-w-xl pt-6">
-        <h1 className="font-display text-4xl leading-tight text-ink">Switch network</h1>
-        <p className="mt-3 text-warn" data-testid="alive-wrong-chain">This claim is on {CHAIN_LABELS[data.chain_id] ?? `chain ${data.chain_id}`}. Switch your wallet to that network to check in.</p>
-        <div className="mt-5"><Btn onClick={() => switchChain({ chainId: data.chain_id as never })}>Switch to {CHAIN_LABELS[data.chain_id] ?? data.chain_id}</Btn></div>
+        <h1 className="font-display text-4xl leading-tight text-ink">{t("switchTitle")}</h1>
+        <p className="mt-3 text-warn" data-testid="alive-wrong-chain">{t("wrongChain", { chain: chainName })}</p>
+        <div className="mt-5"><Btn onClick={() => switchChain({ chainId: data.chain_id as never })}>{t("switchTo", { chain: chainName })}</Btn></div>
       </div>
     );
   }
   if (!isOwner) {
     return (
       <div className="mx-auto max-w-xl pt-6">
-        <h1 className="font-display text-4xl leading-tight text-ink">Connect the vault owner&apos;s wallet</h1>
+        <h1 className="font-display text-4xl leading-tight text-ink">{t("wrongWalletTitle")}</h1>
         <p className="mt-3 text-ink-2" data-testid="alive-wrong-wallet">
-          Only the owner of the vault ({shortAddr(data.owner)}) can check in. You are connected as {address ? shortAddr(address) : "nobody"}. Switch accounts in your wallet.
+          {t("wrongWallet", { owner: shortAddr(data.owner), you: address ? shortAddr(address) : t("nobody") })}
         </p>
       </div>
     );
@@ -120,22 +118,19 @@ function CheckIn({ data, claim, token }: { data: AlivePreview; claim: string; to
   const done = void_ && bundle.data?.invalidated;
   return (
     <div className="mx-auto max-w-xl">
-      <Card title={done ? "Claim cancelled" : "Are you alive?"}>
+      <Card title={done ? t("titleDone") : t("titleAsk")}>
         {done ? (
           <>
-            <p className="text-ink-2" data-testid="alive-done">Your check-in is recorded on the blockchain, so claim #{data.claim_id} is void and can never be finalized.{retired ? " This link is now used up." : ""}</p>
-            <Link href="/app" className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover">Open my vault</Link>
+            <p className="text-ink-2" data-testid="alive-done">{t("done", { id: data.claim_id })}{retired ? ` ${t("retired")}` : ""}</p>
+            <Link href="/app" className="inline-block rounded-lg bg-accent px-4 py-2 text-sm font-medium text-white hover:bg-accent-hover">{t("openVault")}</Link>
           </>
         ) : void_ ? (
-          <p className="text-ink-2" data-testid="alive-closed">Claim #{data.claim_id} is no longer open.</p>
+          <p className="text-ink-2" data-testid="alive-closed">{t("closed", { id: data.claim_id })}</p>
         ) : (
           <>
-            <p className="text-ink-2">
-              Someone raised <b>claim #{data.claim_id}</b> on asset #{data.asset_id} of your vault. If you are alive, press the button and confirm in your wallet:
-              that check-in invalidates the claim immediately.
-            </p>
-            <p className="text-xs text-muted" data-testid="alive-ends">This link expires when the challenge period ends ({fmtTime(data.ends_at)}{data.ends_at > now ? `, in ${fmtDuration(data.ends_at - now)}` : ""}).</p>
-            <Btn onClick={checkIn} disabled={busy || bundle.isLoading} data-testid="alive-confirm" className="px-5 py-2.5">{busy ? "Waiting for your wallet…" : "I'm alive"}</Btn>
+            <p className="text-ink-2">{t.rich("ask", { claim: data.claim_id, asset: data.asset_id, b: (c) => <b>{c}</b> })}</p>
+            <p className="text-xs text-muted" data-testid="alive-ends">{data.ends_at > now ? t("endsIn", { time: fmtTime(data.ends_at), duration: fmtDuration(data.ends_at - now) }) : t("ends", { time: fmtTime(data.ends_at) })}</p>
+            <Btn onClick={checkIn} disabled={busy || bundle.isLoading} data-testid="alive-confirm" className="px-5 py-2.5">{busy ? t("waiting") : t("confirm")}</Btn>
             {error && <p className="text-sm text-bad">{error}</p>}
           </>
         )}

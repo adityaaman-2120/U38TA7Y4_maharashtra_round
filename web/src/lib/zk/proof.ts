@@ -1,4 +1,5 @@
 import type { PublicClient } from "viem";
+import { rt } from "@/i18n/runtime";
 import { sdkMode, mockProverActive } from "./config";
 
 /** The proof as the contract takes it (struct ZkProof). */
@@ -26,14 +27,8 @@ export type ProofRequest = {
   mockVerifier?: `0x${string}`;
 };
 
-export const STAGES: Record<string, string> = {
-  initializing: "Preparing the prover…",
-  "fetching-wasm": "Downloading the proving program (about 10 MB, cached afterwards)…",
-  "fetching-zkey": "Downloading the proving key (large, about 600 MB the first time, cached afterwards)…",
-  proving: "Generating the proof on your device. This can take a minute or two…",
-  completed: "Proof ready.",
-  error: "The prover reported an error.",
-};
+/** The prover's progress message, in the active language. Unknown stages show as given. */
+export const stageText = (stage: string) => (["initializing", "fetching-wasm", "fetching-zkey", "proving", "completed", "error"].includes(stage) ? rt(`Zk.stage.${stage}`) : stage);
 
 // ---- reading the QR code ----------------------------------------------------------------------------------
 
@@ -49,12 +44,12 @@ export async function readQrImage(file: File): Promise<string> {
     canvas.width = w;
     canvas.height = h;
     const ctx = canvas.getContext("2d", { willReadFrequently: true });
-    if (!ctx) throw new Error("This browser cannot read images.");
+    if (!ctx) throw new Error(rt("Zk.noImages"));
     ctx.drawImage(bitmap, 0, 0, w, h);
     const code = jsQR(ctx.getImageData(0, 0, w, h).data, w, h, { inversionAttempts: "attemptBoth" });
     if (code?.data) return code.data;
   }
-  throw new Error("Could not read a QR code in that image. Use the secure QR image from the mAadhaar app or the UIDAI download, not a photo of a screen.");
+  throw new Error(rt("Zk.qrUnreadable"));
 }
 
 // ---- proving ---------------------------------------------------------------------------------------------
@@ -90,14 +85,14 @@ async function proveWithSdk(req: ProofRequest): Promise<ZkProof> {
     args = await react.processAadhaarArgs(req.input, test, req.nullifierSeed, req.revealAge ? ["revealAgeAbove18"] : [], req.signal.toString());
   } catch (e) {
     const why = e instanceof Error ? e.message : String(e);
-    throw new Error(`That QR code was not accepted as ${test ? "a test " : "an "}Aadhaar secure QR code${test ? " (this deployment accepts test QR codes only)" : ""}. (${why})`);
+    throw new Error(rt("Zk.qrRejected", { mode: test ? "test" : "real", why }));
   }
   const { anonAadhaarProof } = await react.proveAndSerialize(args, (s) => req.onStage?.(typeof s === "function" ? "" : String(s)));
   const p = anonAadhaarProof.proof;
 
   // Never send a proof the contract is going to reject: check it is bound to what we asked for.
-  if (BigInt(p.nullifierSeed) !== req.nullifierSeed) throw new Error("The proof was made for a different nullifier seed.");
-  if (BigInt(p.signalHash) !== BigInt(core.hash(req.signal.toString()))) throw new Error("The proof is not bound to the expected signal.");
+  if (BigInt(p.nullifierSeed) !== req.nullifierSeed) throw new Error(rt("Zk.seedMismatch"));
+  if (BigInt(p.signalHash) !== BigInt(core.hash(req.signal.toString()))) throw new Error(rt("Zk.signalMismatch"));
 
   return {
     nullifier: BigInt(p.nullifier),

@@ -1,0 +1,50 @@
+{
+  "Alive": {
+    "checking": "Checking your link…",
+    "problemTitle": "This link can't be used",
+    "problem": {
+      "invalid": "This link is not valid. It may have been copied incompletely.",
+      "used": "This link has already been used. If you checked in with it, the claim is cancelled.",
+      "closed": "This claim is no longer open, so there is nothing left to cancel with this link.",
+      "expired": "This link expired when the challenge period ended. You can still open Heirloom and check in from there if the claim has not been finalized."
+    },
+    "openHeirloom": "Open Heirloom",
+    "home": "Home",
+    "switchTitle": "Switch network",
+    "wrongChain": "This claim is on {chain}. Switch your wallet to that network to check in.",
+    "chainFallback": "chain {id}",
+    "switchTo": "Switch to {chain}",
+    "wrongWalletTitle": "Connect the vault owner's wallet",
+    "wrongWallet": "Only the owner of the vault ({owner}) can check in. You are connected as {you}. Switch accounts in your wallet.",
+    "nobody": "nobody",
+    "titleDone": "Claim cancelled",
+    "titleAsk": "Are you alive?",
+    "done": "Your check-in is recorded on the blockchain, so claim #{id} is void and can never be finalized.",
+    "retired": "This link is now used up.",
+    "openVault": "Open my vault",
+    "closed": "Claim #{id} is no longer open.",
+    "ask": "Someone raised <b>claim #{claim}</b> on asset #{asset} of your vault. If you are alive, press the button and confirm in your wallet: that check-in invalidates the claim immediately.",
+    "ends": "This link expires when the challenge period ends ({time}).",
+    "endsIn": "This link expires when the challenge period ends ({time}, in {duration}).",
+    "waiting": "Waiting for your wallet…",
+    "confirm": "I'm alive",
+    "txLabel": "Check in"
+  },
+  "Invite": {
+    "checking": "Checking your invitation…",
+    "invalidTitle": "This invitation isn't valid",
+    "invalidBody": "It may have expired, been withdrawn, or already been used. Ask the person who invited you to send a new one.",
+    "backHome": "Back to Heirloom",
+    "bannerGuardian": "<b>{inviter}</b> invited you to be a guardian on Heirloom. Sign in below to accept.",
+    "bannerBeneficiary": "<b>{inviter}</b> invited you to be a beneficiary on Heirloom. Sign in below to accept.",
+    "copyGuardian": "<b>{inviter}</b> invited you to be a guardian. You will hold one encrypted piece of their key and review any claim on their vault. You can never open their files alone.",
+    "copyBeneficiary": "<b>{inviter}</b> invited you to be a beneficiary. They are reserving files for you. You will see that they exist, never what they contain, until the guardians release them.",
+    "inTitle": "You're in",
+    "accepted": "You accepted {inviter}'s invitation. When they add you on-chain, it will appear in your dashboard automatically.",
+    "openDashboard": "Open my dashboard",
+    "acceptTitle": "Accept the invitation",
+    "acceptingAs": "Accepting as {name} ({email}).",
+    "accepting": "Accepting…",
+    "accept": "Accept invitation"
+  }
+}

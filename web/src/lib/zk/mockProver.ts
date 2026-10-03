@@ -2,6 +2,7 @@
 // It does not touch an Aadhaar QR code: the "input" is a made-up person id, hashed into a nullifier. Two wallets given the
 // same id therefore get the same nullifier, which is how the one-person-one-wallet rule can be exercised locally.
 import { encodeAbiParameters, keccak256, parseAbiParameters, toBytes } from "viem";
+import { rt } from "@/i18n/runtime";
 import type { ProofRequest, ZkProof } from "./proof";
 
 const FIELD = 21888242871839275222246405745257275088548364400416034343698204186575808495617n;
@@ -18,11 +19,11 @@ const MOCK_ABI = [
 ] as const;
 
 export async function proveWithMock(req: ProofRequest): Promise<ZkProof> {
-  if (req.chainId !== 31337 || !req.publicClient || !req.mockVerifier) throw new Error("The mock prover only works on a local chain.");
+  if (req.chainId !== 31337 || !req.publicClient || !req.mockVerifier) throw new Error(rt("Zk.mockLocalOnly"));
   // "<id>" or "<id>|minor": the part before "|" is the person (it becomes the nullifier); "|minor" makes the same person under 18.
   const [personId, flag] = req.input.trim().split("|");
   const person = personId.trim();
-  if (!person) throw new Error("Enter a test person id.");
+  if (!person) throw new Error(rt("Zk.enterPersonId"));
   req.onStage?.("proving");
 
   const nullifier = BigInt(keccak256(encodeAbiParameters(parseAbiParameters("bytes32, string"), [keccak256(toBytes("heirloom.mock.person")), person]))) % FIELD;

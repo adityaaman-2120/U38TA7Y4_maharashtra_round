@@ -1,0 +1,70 @@
+{
+  "Meta": {
+    "title": "Heirloom — কাউকে বিশ্বাস না করেই ডিজিটাল উত্তরাধিকার",
+    "description": "আপনার বেছে নেওয়া মানুষদের জন্য ফাইল রেখে যান। আপনার ব্রাউজারেই এনক্রিপ্টেড, এবং আপনার অভিভাবকেরা আপনি নেই বলে একমত হলেই কেবল খোলে।",
+    "appTitle": "Heirloom — অ্যাপ",
+    "inviteTitle": "Heirloom — আমন্ত্রণ",
+    "aliveTitle": "Heirloom — চেক-ইন"
+  },
+  "Language": {
+    "label": "ভাষা"
+  },
+  "Common": {
+    "loading": "লোড হচ্ছে",
+    "dismiss": "সরিয়ে দিন",
+    "close": "বন্ধ করুন",
+    "unnamed": "নামহীন",
+    "tryAgain": "আবার চেষ্টা করুন"
+  },
+  "Verified": {
+    "verified": "যাচাইকৃত",
+    "notVerified": "যাচাই হয়নি",
+    "notVerifiedHint": "পরিচয় যাচাই করেননি",
+    "verifiedHint": "বৈধ আধারের জিরো-নলেজ প্রমাণ দিয়ে যাচাইকৃত। আধারের কোনো তথ্য কোথাও জমা থাকে না।"
+  },
+  "PersonSelect": {
+    "placeholder": "কাউকে বেছে নিন…",
+    "verifiedSuffix": "✓ যাচাইকৃত",
+    "goToPeople": "মানুষজন পাতায় যান"
+  },
+  "Letter": {
+    "eyebrow": "আপনার জন্য একটি চিঠি",
+    "copied": "কপি হয়েছে",
+    "copy": "লেখা কপি করুন",
+    "download": ".txt হিসেবে ডাউনলোড করুন",
+    "close": "বন্ধ করুন",
+    "defaultTitle": "শেষ চিঠি"
+  },
+  "Toast": {
+    "dismiss": "সরিয়ে দিন",
+    "tx": "লেনদেন",
+    "onExplorer": "এক্সপ্লোরারে {hash}"
+  },
+  "Deployment": {
+    "networkFallback": "এই নেটওয়ার্ক",
+    "chainFallback": "চেইন {id}",
+    "unreachableTitle": "{where}-এ পৌঁছানো যাচ্ছে না",
+    "unreachableLocal": "লোকাল চেইন http://127.0.0.1:8545-এ সাড়া দিচ্ছে না।",
+    "unreachableRemote": "নেটওয়ার্কের RPC এন্ডপয়েন্ট সাড়া দিচ্ছে না। আপনার সংযোগ এবং অ্যাপের সেটিংসে RPC URL পরীক্ষা করুন।",
+    "missingTitle": "Heirloom {where}-এ প্রত্যাশিত ঠিকানায় নেই",
+    "missingBodyNothing": "এই পাতা Heirloom-কে {address} ঠিকানায় খোঁজে, কিন্তু সেখানে কিছুই ডিপ্লয় করা নেই।",
+    "missingBodyOther": "এই পাতা Heirloom-কে {address} ঠিকানায় খোঁজে, কিন্তু সেখানে অন্য একটি কন্ট্রাক্ট আছে।",
+    "step1": "পুরোনো <code>npm run dev</code> টার্মিনালগুলো বন্ধ করুন, তারপর প্রজেক্ট ফোল্ডার থেকে একবার <code>npm run dev</code> চালান।",
+    "step2": "সেই টার্মিনালে <code>Heirloom deployed to …</code> দেখা না যাওয়া পর্যন্ত অপেক্ষা করুন।",
+    "step3": "এই পাতা রিলোড করুন (Ctrl+Shift+R)। রিস্টার্টের পর লোকাল চেইন খালি অবস্থায় শুরু হয় এবং নতুন ডিপ্লয়মেন্ট পায়, তাই নতুন ঠিকানা পেতে পাতাটি রিলোড করতে হবে।",
+    "outdated": "এই বিল্ডের ডিপ্লয়মেন্ট রেকর্ড এই নেটওয়ার্কের জন্য পুরোনো। আবার ডিপ্লয় করুন, অথবা বর্তমান <code>contracts.ts</code> দিয়ে অ্যাপ নতুন করে বিল্ড করুন।",
+    "checkAgain": "আবার পরীক্ষা করুন",
+    "reload": "পাতা রিলোড করুন"
+  },
+  "Api": {
+    "storageNotConfigured": "স্টোরেজ কনফিগার করা নেই",
+    "contentType": "Content-Type অবশ্যই application/octet-stream হতে হবে",
+    "tooBig": "ফাইল ২৫ MB-র চেয়ে বড়",
+    "emptyBody": "খালি অনুরোধ",
+    "unreachable": "স্টোরেজ প্রদানকারীর কাছে পৌঁছানো যাচ্ছে না",
+    "rejected": "স্টোরেজ প্রদানকারী আপলোড প্রত্যাখ্যান করেছে"
+  },
+  "Chains": {
+    "localhost": "লোকালহোস্ট"
+  }
+}

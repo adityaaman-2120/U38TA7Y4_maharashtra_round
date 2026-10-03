@@ -1,6 +1,7 @@
 import { useQuery } from "@tanstack/react-query";
 import { eventsApi } from "./api";
 import { useEvents, useHeirloom } from "./hooks";
+import { rt } from "@/i18n/runtime";
 import type { HeirloomEvent } from "./logs";
 
 /** An audit row. From the indexer it already carries its timestamp and sender; from the chain it is looked up later. */
@@ -45,14 +46,14 @@ export function useAuditEvents(): { entries: AuditEntry[]; source: AuditSource; 
 
   const status = indexer.data?.status;
   let reason = "";
-  if (indexer.isError) reason = "the indexer is unreachable";
-  else if (indexer.data && !status) reason = "the indexer has not started on this network";
-  else if (status?.error) reason = "the indexer reported an error";
-  else if (status?.stale) reason = "the indexer has stalled";
-  else if (status && status.lag_blocks > MAX_LAG_BLOCKS) reason = `the indexer is ${status.lag_blocks} blocks behind`;
+  if (indexer.isError) reason = rt("AuditSource.unreachable");
+  else if (indexer.data && !status) reason = rt("AuditSource.notStarted");
+  else if (status?.error) reason = rt("AuditSource.error");
+  else if (status?.stale) reason = rt("AuditSource.stalled");
+  else if (status && status.lag_blocks > MAX_LAG_BLOCKS) reason = rt("AuditSource.behind", { blocks: status.lag_blocks });
 
   if (indexer.data && !reason) {
-    return { entries: indexer.data.entries, source: "indexer", loading: false, failed: false, note: `Indexed up to block ${status!.last_block}` };
+    return { entries: indexer.data.entries, source: "indexer", loading: false, failed: false, note: rt("AuditSource.indexedUpTo", { block: status!.last_block }) };
   }
   if (indexer.isLoading) return { entries: [], source: "indexer", loading: true, failed: false, note: "" };
   return {
@@ -60,6 +61,6 @@ export function useAuditEvents(): { entries: AuditEntry[]; source: AuditSource; 
     source: "chain",
     loading: chain.isLoading,
     failed: chain.isError,
-    note: `Read directly from the blockchain because ${reason || "the indexer is unavailable"}`,
+    note: rt("AuditSource.readDirect", { reason: reason || rt("AuditSource.unavailable") }),
   };
 }

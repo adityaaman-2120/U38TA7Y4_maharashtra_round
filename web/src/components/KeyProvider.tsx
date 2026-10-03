@@ -2,6 +2,7 @@
 import { createContext, useCallback, useContext, useEffect, useRef, useState, type FormEvent, type ReactNode } from "react";
 import { useQuery, useQueryClient } from "@tanstack/react-query";
 import type { Hex } from "viem";
+import { useTranslations } from "next-intl";
 import { keyApi } from "@/lib/api";
 import { readers, useHeirloom, useRead, useTx } from "@/lib/hooks";
 import {
@@ -34,6 +35,7 @@ export const useKey = () => {
  * it) and fetched on sign-in, so it follows the user across devices. The decrypted key exists only in memory.
  */
 export function KeyGate({ children }: { children: ReactNode }) {
+  const t = useTranslations("Key");
   const { address, deployment } = useHeirloom();
   const send = useTx();
   const qc = useQueryClient();
@@ -100,8 +102,8 @@ export function KeyGate({ children }: { children: ReactNode }) {
   return (
     <div className="mx-auto max-w-lg">
       {status === "loading" && (server.isError
-        ? <p className="text-bad">Could not load your key from the server: {(server.error as Error).message}</p>
-        : <p className="text-muted">Loading your account…</p>)}
+        ? <p className="text-bad">{t("loadFailed", { error: (server.error as Error).message })}</p>
+        : <p className="text-muted">{t("loadingAccount")}</p>)}
 
       {status === "setup" && (
         <SetupForm busy={busy} error={error} onSubmit={(pw) => guard(async () => {
@@ -114,21 +116,18 @@ export function KeyGate({ children }: { children: ReactNode }) {
       )}
 
       {status === "backup" && blob && (
-        <Card title="Download your recovery file">
-          <p className="text-sm text-ink-2">
-            Your encrypted key is stored with your account, protected by your encryption password. Keep a copy of the recovery file as well:
-            if you forget the password, or the service disappears, this file is the only other way back in. It is encrypted with your password too.
-          </p>
-          <Btn data-testid="download-recovery" onClick={() => { downloadRecoveryFile(blob); clearNeedsBackup(address!); bump((v) => v + 1); }}>Download recovery file</Btn>
+        <Card title={t("backupTitle")}>
+          <p className="text-sm text-ink-2">{t("backupBody")}</p>
+          <Btn data-testid="download-recovery" onClick={() => { downloadRecoveryFile(blob); clearNeedsBackup(address!); bump((v) => v + 1); }}>{t("downloadRecovery")}</Btn>
         </Card>
       )}
 
       {status === "register" && blob && (
-        <Card title="Register your encryption key">
-          <p className="text-sm text-ink-2">Publish your <b>public</b> key on-chain so others can encrypt to you. The private key stays here.</p>
+        <Card title={t("registerTitle")}>
+          <p className="text-sm text-ink-2">{t.rich("registerBody", { b: (c) => <b>{c}</b> })}</p>
           <p className="break-all font-mono text-xs text-faint">{blob.publicKey}</p>
-          <Btn data-testid="register-key" disabled={busy} onClick={() => guard(async () => { await send("Register encryption key", "registerEncryptionKey", [blob.publicKey]); })}>
-            Register on-chain
+          <Btn data-testid="register-key" disabled={busy} onClick={() => guard(async () => { await send(t("registerTx"), "registerEncryptionKey", [blob.publicKey]); })}>
+            {t("registerButton")}
           </Btn>
         </Card>
       )}
@@ -150,21 +149,19 @@ export function KeyGate({ children }: { children: ReactNode }) {
 }
 
 function SetupForm({ busy, error, onSubmit }: { busy: boolean; error: string; onSubmit: (pw: string) => void }) {
+  const t = useTranslations("Key");
   const [pw, setPw] = useState("");
   const [pw2, setPw2] = useState("");
-  const problem = pw.length < MIN_PASSWORD_LENGTH ? `Use at least ${MIN_PASSWORD_LENGTH} characters` : pw !== pw2 ? "Passwords do not match" : "";
+  const problem = pw.length < MIN_PASSWORD_LENGTH ? t("tooShort", { min: MIN_PASSWORD_LENGTH }) : pw !== pw2 ? t("mismatch") : "";
   const submit = (e: FormEvent) => { e.preventDefault(); if (!problem) onSubmit(pw); };
   return (
-    <Card title="Set your encryption password">
+    <Card title={t("setupTitle")}>
       <form onSubmit={submit} className="space-y-3">
-        <p className="text-sm text-ink-2">
-          This password protects your encryption key, which is generated in your browser. It is separate from your wallet and <b>cannot be reset</b>:
-          we only ever store the key in encrypted form and never see the password.
-        </p>
-        <Input type="password" autoComplete="new-password" placeholder="Encryption password" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="pw" />
-        <Input type="password" autoComplete="new-password" placeholder="Repeat password" value={pw2} onChange={(e) => setPw2(e.target.value)} data-testid="pw2" />
+        <p className="text-sm text-ink-2">{t.rich("setupBody", { b: (c) => <b>{c}</b> })}</p>
+        <Input type="password" autoComplete="new-password" placeholder={t("passwordPlaceholder")} value={pw} onChange={(e) => setPw(e.target.value)} data-testid="pw" />
+        <Input type="password" autoComplete="new-password" placeholder={t("repeatPlaceholder")} value={pw2} onChange={(e) => setPw2(e.target.value)} data-testid="pw2" />
         {pw && problem && <p className="text-xs text-warn">{problem}</p>}
-        <Btn type="submit" disabled={busy || Boolean(problem)} data-testid="create-key">{busy ? "Generating key…" : "Create encryption key"}</Btn>
+        <Btn type="submit" disabled={busy || Boolean(problem)} data-testid="create-key">{busy ? t("generating") : t("create")}</Btn>
         {error && <p className="text-sm text-bad">{error}</p>}
       </form>
     </Card>
@@ -174,18 +171,19 @@ function SetupForm({ busy, error, onSubmit }: { busy: boolean; error: string; on
 function UnlockForm({ busy, error, address, onchain, onSubmit, onImport }: {
   busy: boolean; error: string; address: string; onchain: string | null; onSubmit: (pw: string) => void; onImport: (b: KeyBlob) => Promise<void>;
 }) {
+  const t = useTranslations("Key");
   const [pw, setPw] = useState("");
   const [recover, setRecover] = useState(false);
   return (
     <div className="space-y-4">
-      <Card title="Unlock your encryption key">
+      <Card title={t("unlockTitle")}>
         <form onSubmit={(e) => { e.preventDefault(); onSubmit(pw); }} className="space-y-3">
-          <Input type="password" autoComplete="current-password" placeholder="Encryption password" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="unlock-pw" />
-          <Btn type="submit" disabled={busy || !pw} data-testid="unlock">{busy ? "Unlocking…" : "Unlock"}</Btn>
+          <Input type="password" autoComplete="current-password" placeholder={t("passwordPlaceholder")} value={pw} onChange={(e) => setPw(e.target.value)} data-testid="unlock-pw" />
+          <Btn type="submit" disabled={busy || !pw} data-testid="unlock">{busy ? t("unlocking") : t("unlock")}</Btn>
           {error && <p className="text-sm text-bad">{error}</p>}
         </form>
         <button type="button" onClick={() => setRecover((r) => !r)} className="text-sm font-medium text-accent underline" data-testid="use-recovery">
-          {recover ? "Hide recovery options" : "Forgot your password? Use a recovery file instead"}
+          {recover ? t("hideRecovery") : t("forgot")}
         </button>
       </Card>
       {recover && (
@@ -196,32 +194,27 @@ function UnlockForm({ busy, error, address, onchain, onSubmit, onImport }: {
 }
 
 function ImportForm({ address, onchain, mismatch = false, variant, onImport }: { address: string; onchain: string | null; mismatch?: boolean; variant?: "password"; onImport: (b: KeyBlob) => Promise<void> }) {
+  const t = useTranslations("Key");
   const [error, setError] = useState("");
   const onFile = async (f: File | undefined) => {
     if (!f) return;
     setError("");
     try {
       const b = parseKeyBlob(await f.text());
-      if (b.address.toLowerCase() !== address.toLowerCase()) throw new Error("This recovery file belongs to a different account");
-      if (onchain && b.publicKey.toLowerCase() !== onchain) throw new Error("This recovery file does not match the key registered on-chain");
+      if (b.address.toLowerCase() !== address.toLowerCase()) throw new Error(t("wrongAccount"));
+      if (onchain && b.publicKey.toLowerCase() !== onchain) throw new Error(t("wrongKey"));
       await onImport(b);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
     }
   };
   return (
-    <Card title="Import your recovery file">
+    <Card title={t("importTitle")}>
       <p className="text-sm text-ink-2">
-        {variant === "password"
-          ? "A recovery file keeps the password it was created with. Choose a file whose password you remember. It replaces the copy stored with your account, and you then unlock it with that password."
-          : mismatch
-            ? "The key stored for this account does not match the key registered on-chain. Import the correct recovery file."
-            : "An encryption key is already registered on-chain for this account, but it is not stored with your account. Import your recovery file to continue."}
+        {variant === "password" ? t("importPassword") : mismatch ? t("importMismatch") : t("importNotStored")}
       </p>
       {variant === "password" && (
-        <p className="text-xs text-muted">
-          No file, or no password you remember? Nobody can reset it for you; see <a href="/security#recovery" className="text-accent underline" target="_blank" rel="noreferrer">what you can still do</a>.
-        </p>
+        <p className="text-xs text-muted">{t.rich("importNoFile", { link: (c) => <a href="/security#recovery" className="text-accent underline" target="_blank" rel="noreferrer">{c}</a> })}</p>
       )}
       <input type="file" accept="application/json,.json" data-testid="import-file" onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
       {error && <p className="text-sm text-bad">{error}</p>}

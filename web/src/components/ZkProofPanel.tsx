@@ -1,12 +1,10 @@
 "use client";
 import { useState } from "react";
+import { useTranslations } from "next-intl";
 import { useHeirloom } from "@/lib/hooks";
 import { modeProblem, sdkMode, mockProverActive, zkDeployment } from "@/lib/zk/config";
-import { STAGES, generateProof, readQrImage, type ZkProof } from "@/lib/zk/proof";
+import { generateProof, stageText, readQrImage, type ZkProof } from "@/lib/zk/proof";
 import { Btn, Card, Input, Label } from "./ui";
-
-export const PRIVACY_NOTE =
-  "Your Aadhaar QR code and everything in it stay in this browser. Only a zero-knowledge proof is created here and sent on-chain, with a one-way pseudonym that is unique to Heirloom. It cannot be traced back to your Aadhaar number or linked to what you do in other apps.";
 
 /**
  * Collects the Aadhaar QR (read locally), generates a proof bound to `signal`, and hands the proof to `onProof`.
@@ -22,6 +20,7 @@ export function ZkProofPanel({ title, intro, signal, revealAge = false, actionLa
   onProof: (proof: ZkProof) => Promise<void>;
   onCancel?: () => void;
 }) {
+  const t = useTranslations("ZkPanel");
   const { chainId, publicClient } = useHeirloom();
   const z = zkDeployment(chainId);
   const mock = mockProverActive(chainId);
@@ -43,9 +42,9 @@ export function ZkProofPanel({ title, intro, signal, revealAge = false, actionLa
       const input = mock ? person : await readQrImage(file!);
       const proof = await generateProof({
         chainId, signal: await signal(), nullifierSeed: z.nullifierSeed, revealAge, input, publicClient,
-        mockVerifier: z.verifier as `0x${string}`, onStage: (s) => setStage(STAGES[s] ?? s),
+        mockVerifier: z.verifier as `0x${string}`, onStage: (s) => setStage(stageText(s)),
       });
-      setStage("Proof ready. Confirm in your wallet…");
+      setStage(t("proofReady"));
       await onProof(proof);
     } catch (e) {
       setError(e instanceof Error ? e.message : String(e));
@@ -58,27 +57,27 @@ export function ZkProofPanel({ title, intro, signal, revealAge = false, actionLa
   return (
     <Card title={title}>
       <p className="text-sm text-ink-2">{intro}</p>
-      <p className="rounded-lg bg-accent-soft px-3 py-2 text-xs text-ink-2" data-testid="zk-privacy">{PRIVACY_NOTE}</p>
+      <p className="rounded-lg bg-accent-soft px-3 py-2 text-xs text-ink-2" data-testid="zk-privacy">{t("privacy")}</p>
       {problem && <p className="text-sm text-bad" data-testid="zk-config-problem">{problem}</p>}
       {!mock && mode === "test" && (
         <p className="text-xs text-warn" data-testid="zk-test-mode">
-          Test mode: only test QR codes are accepted (generate one in the Anon Aadhaar documentation). Real Aadhaar QR codes are rejected on this deployment.
+          {t("testMode")}
         </p>
       )}
       {mock ? (
         <>
-          <p className="text-xs text-warn" data-testid="zk-mock-mode">Local test double: no Aadhaar is read. Enter any made-up person id; the same id always gives the same pseudonym (add &quot;|minor&quot; for a person under 18).</p>
-          <Label text="Test person id"><Input value={person} onChange={(e) => setPerson(e.target.value)} placeholder="e.g. alice" data-testid="zk-input" /></Label>
+          <p className="text-xs text-warn" data-testid="zk-mock-mode">{t("mockMode")}</p>
+          <Label text={t("personLabel")}><Input value={person} onChange={(e) => setPerson(e.target.value)} placeholder={t("personPlaceholder")} data-testid="zk-input" /></Label>
         </>
       ) : (
-        <Label text="Aadhaar secure QR code (an image)" hint="From the mAadhaar app or the UIDAI download. The image is read in this browser and never uploaded.">
+        <Label text={t("qrLabel")} hint={t("qrHint")}>
           <input type="file" accept="image/*" onChange={(e) => setFile(e.target.files?.[0] ?? null)} data-testid="zk-input" className="text-sm" />
         </Label>
       )}
-      {revealAge && <p className="text-xs text-muted">This proof reveals one thing only: that the holder is over 18. No date of birth, no other field.</p>}
+      {revealAge && <p className="text-xs text-muted">{t("ageNote")}</p>}
       <div className="flex flex-wrap items-center gap-2">
-        <Btn disabled={busy || !ready || Boolean(problem)} onClick={run} data-testid="zk-run">{busy ? "Working…" : actionLabel}</Btn>
-        {onCancel && <Btn tone="ghost" disabled={busy} onClick={onCancel}>Cancel</Btn>}
+        <Btn disabled={busy || !ready || Boolean(problem)} onClick={run} data-testid="zk-run">{busy ? t("working") : actionLabel}</Btn>
+        {onCancel && <Btn tone="ghost" disabled={busy} onClick={onCancel}>{t("cancel")}</Btn>}
       </div>
       {stage && <p className="text-sm text-ink-2" data-testid="zk-stage" aria-live="polite">{stage}</p>}
       {error && <p className="text-sm text-bad" data-testid="zk-error">{error}</p>}

@@ -1,3 +1,4 @@
+import { rt } from "@/i18n/runtime";
 import { getDeployment } from "../contract";
 
 /**
@@ -43,9 +44,9 @@ export const mockProverActive = (chainId: number | undefined) =>
 export function modeProblem(chainId: number | undefined): string | null {
   const z = zkDeployment(chainId);
   if (!z || mockProverActive(chainId)) return null;
-  if (z.mode === "mock") return "This deployment uses a local test verifier. Set NEXT_PUBLIC_ZK_PROVER=mock to use it.";
+  if (z.mode === "mock") return rt("Zk.mockVerifierNote");
   if ((z.mode === "test" || z.mode === "real") && sdkMode(chainId) !== z.mode) {
-    return `The verifier on this network trusts ${z.mode} Aadhaar QR codes, but the app is set to ${sdkMode(chainId)}. Proofs would be rejected.`;
+    return rt("Zk.modeMismatch", { verifier: z.mode, app: sdkMode(chainId) });
   }
   return null;
 }

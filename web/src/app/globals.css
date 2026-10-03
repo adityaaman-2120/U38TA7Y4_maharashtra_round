@@ -22,9 +22,9 @@
   --color-warn: #8f5600;
   --color-warn-soft: #f8ecd2;
 
-  --font-sans: var(--font-geist-sans), ui-sans-serif, system-ui, sans-serif;
+  --font-sans: var(--font-geist-sans), var(--font-devanagari), var(--font-bengali), ui-sans-serif, system-ui, sans-serif;
   --font-mono: var(--font-geist-mono), ui-monospace, monospace;
-  --font-display: var(--font-display), Georgia, serif;
+  --font-display: var(--font-display), var(--font-devanagari), var(--font-bengali), Georgia, serif;
 }
 
 html {

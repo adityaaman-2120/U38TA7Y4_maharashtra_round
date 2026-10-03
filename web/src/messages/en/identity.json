@@ -1,0 +1,30 @@
+{
+  "ZkPanel": {
+    "privacy": "Your Aadhaar QR code and everything in it stay in this browser. Only a zero-knowledge proof is created here and sent on-chain, with a one-way pseudonym that is unique to Heirloom. It cannot be traced back to your Aadhaar number or linked to what you do in other apps.",
+    "testMode": "Test mode: only test QR codes are accepted (generate one in the Anon Aadhaar documentation). Real Aadhaar QR codes are rejected on this deployment.",
+    "mockMode": "Local test double: no Aadhaar is read. Enter any made-up person id; the same id always gives the same pseudonym (add “|minor” for a person under 18).",
+    "personLabel": "Test person id",
+    "personPlaceholder": "e.g. alice",
+    "qrLabel": "Aadhaar secure QR code (an image)",
+    "qrHint": "From the mAadhaar app or the UIDAI download. The image is read in this browser and never uploaded.",
+    "ageNote": "This proof reveals one thing only: that the holder is over 18. No date of birth, no other field.",
+    "working": "Working…",
+    "cancel": "Cancel",
+    "proofReady": "Proof ready. Confirm in your wallet…"
+  },
+  "Identity": {
+    "intro": "Prove you are one real Aadhaar holder without showing your Aadhaar. Owners can then choose to require verified guardians, and verified beneficiaries, so one person cannot pose as several.",
+    "verifyTitle": "Verify your identity (zero-knowledge)",
+    "generateAndVerify": "Generate proof and verify",
+    "verifyFailed": "The verification transaction did not go through.",
+    "cardTitle": "Identity verification",
+    "disabled": "This deployment has no identity verifier, so verification is not available.",
+    "verifiedLine": "You are verified. Your pseudonymous id on Heirloom:",
+    "nullifierNote": "It is public, but it is derived for Heirloom only and reveals nothing about your Aadhaar.",
+    "startVerify": "Verify identity (zero-knowledge)",
+    "optionalStep": "Optional step",
+    "stepHeading": "Prove you're a real person.",
+    "skip": "Skip for now (you can verify later from Account)",
+    "label": "Verify identity"
+  }
+}

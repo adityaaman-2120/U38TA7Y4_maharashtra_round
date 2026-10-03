@@ -1,0 +1,70 @@
+{
+  "Meta": {
+    "title": "Heirloom — बिना किसी पर भरोसा किए डिजिटल विरासत",
+    "description": "अपने चुने हुए लोगों के लिए फ़ाइलें छोड़ें। आपके ब्राउज़र में एन्क्रिप्टेड, और तभी खुलती हैं जब आपके संरक्षक मानें कि आप नहीं रहे।",
+    "appTitle": "Heirloom — ऐप",
+    "inviteTitle": "Heirloom — आमंत्रण",
+    "aliveTitle": "Heirloom — चेक-इन"
+  },
+  "Language": {
+    "label": "भाषा"
+  },
+  "Common": {
+    "loading": "लोड हो रहा है",
+    "dismiss": "हटाएँ",
+    "close": "बंद करें",
+    "unnamed": "बिना नाम",
+    "tryAgain": "फिर कोशिश करें"
+  },
+  "Verified": {
+    "verified": "सत्यापित",
+    "notVerified": "सत्यापित नहीं",
+    "notVerifiedHint": "पहचान सत्यापित नहीं की है",
+    "verifiedHint": "वैध आधार के ज़ीरो-नॉलेज प्रमाण से सत्यापित। आधार का कोई डेटा कहीं संग्रहीत नहीं होता।"
+  },
+  "PersonSelect": {
+    "placeholder": "किसी को चुनें…",
+    "verifiedSuffix": "✓ सत्यापित",
+    "goToPeople": "लोग पृष्ठ पर जाएँ"
+  },
+  "Letter": {
+    "eyebrow": "आपके लिए एक पत्र",
+    "copied": "कॉपी हो गया",
+    "copy": "टेक्स्ट कॉपी करें",
+    "download": ".txt के रूप में डाउनलोड करें",
+    "close": "बंद करें",
+    "defaultTitle": "अंतिम पत्र"
+  },
+  "Toast": {
+    "dismiss": "हटाएँ",
+    "tx": "लेन-देन",
+    "onExplorer": "एक्सप्लोरर पर {hash}"
+  },
+  "Deployment": {
+    "networkFallback": "यह नेटवर्क",
+    "chainFallback": "चेन {id}",
+    "unreachableTitle": "{where} तक नहीं पहुँच पा रहे",
+    "unreachableLocal": "लोकल चेन http://127.0.0.1:8545 पर जवाब नहीं दे रही।",
+    "unreachableRemote": "नेटवर्क का RPC एंडपॉइंट जवाब नहीं दे रहा। अपना कनेक्शन और ऐप सेटिंग में RPC URL जाँचें।",
+    "missingTitle": "Heirloom {where} पर अपेक्षित पते पर नहीं है",
+    "missingBodyNothing": "यह पृष्ठ Heirloom को {address} पर ढूँढता है, लेकिन वहाँ कुछ भी डिप्लॉय नहीं है।",
+    "missingBodyOther": "यह पृष्ठ Heirloom को {address} पर ढूँढता है, लेकिन वहाँ कोई दूसरा कॉन्ट्रैक्ट है।",
+    "step1": "पुराने <code>npm run dev</code> टर्मिनल बंद करें, फिर प्रोजेक्ट फ़ोल्डर से एक बार <code>npm run dev</code> चलाएँ।",
+    "step2": "उस टर्मिनल में <code>Heirloom deployed to …</code> दिखने तक रुकें।",
+    "step3": "इस पृष्ठ को रीलोड करें (Ctrl+Shift+R)। रीस्टार्ट के बाद लोकल चेन खाली शुरू होती है और नया डिप्लॉयमेंट पाती है, इसलिए नया पता लेने के लिए पृष्ठ रीलोड करना होगा।",
+    "outdated": "इस बिल्ड में इस नेटवर्क का डिप्लॉयमेंट रिकॉर्ड पुराना है। दोबारा डिप्लॉय करें, या ऐप को मौजूदा <code>contracts.ts</code> के साथ फिर से बनाएँ।",
+    "checkAgain": "फिर जाँचें",
+    "reload": "पृष्ठ रीलोड करें"
+  },
+  "Api": {
+    "storageNotConfigured": "स्टोरेज कॉन्फ़िगर नहीं है",
+    "contentType": "Content-Type application/octet-stream होना चाहिए",
+    "tooBig": "फ़ाइल 25 MB से बड़ी है",
+    "emptyBody": "खाली अनुरोध",
+    "unreachable": "स्टोरेज प्रदाता तक नहीं पहुँच पा रहे",
+    "rejected": "स्टोरेज प्रदाता ने अपलोड अस्वीकार कर दिया"
+  },
+  "Chains": {
+    "localhost": "लोकलहोस्ट"
+  }
+}

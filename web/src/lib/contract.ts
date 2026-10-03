@@ -1,4 +1,5 @@
 import type { Address } from "viem";
+import { rt } from "@/i18n/runtime";
 import { heirloomAbi, heirloomDeployments } from "./contracts";
 
 export { heirloomAbi };
@@ -22,6 +23,8 @@ export function getDeployment(chainId: number | undefined): Deployment | null {
 
 export const EVIDENCE_TYPES = ["Death", "Incapacity", "Any"] as const;
 export const CLAIM_STATUS = ["None", "Raised", "Cancelled", "Finalized", "Rejected"] as const;
+/** The evidence type's name in the active language. */
+export const evidenceLabel = (i: number) => rt(`Evidence.type.${EVIDENCE_TYPES[i]}`);
 
 export type Policy = {
   requiredApprovals: number;

@@ -1,31 +1,36 @@
+import { rt, type Translator } from "@/i18n/runtime";
 import { EVIDENCE_TYPES } from "./contract";
 import { shortAddr, shortHash } from "./format";
 import type { HeirloomEvent } from "./logs";
 
 type Tone = "good" | "bad" | "warn" | "info";
 
-export const EVENT_LABELS: Record<string, { label: string; tone: Tone }> = {
-  EncryptionKeyRegistered: { label: "Key registered", tone: "info" },
-  IdentityVerified: { label: "Identity verified", tone: "good" },
-  VaultCreated: { label: "Vault created", tone: "good" },
-  GuardiansRotated: { label: "Guardians rotated", tone: "warn" },
-  Heartbeat: { label: "Owner check-in", tone: "good" },
-  PanicFrozen: { label: "Vault frozen", tone: "bad" },
-  VaultUnfrozen: { label: "Vault unfrozen", tone: "warn" },
-  AssetAdded: { label: "Asset reserved", tone: "info" },
-  AssetSharesUpdated: { label: "Asset re-shared", tone: "info" },
-  ClaimRaised: { label: "Claim raised", tone: "warn" },
-  Attested: { label: "Guardian approved", tone: "good" },
-  ClaimRejectedByGuardian: { label: "Guardian rejected", tone: "bad" },
-  ClaimRejected: { label: "Claim rejected", tone: "bad" },
-  FraudFlagged: { label: "Fraud flagged", tone: "bad" },
-  ClaimCancelled: { label: "Claim cancelled", tone: "bad" },
-  ClaimFinalized: { label: "Claim finalized", tone: "good" },
-  ShareReleased: { label: "Share released", tone: "info" },
-  CryptoDeposited: { label: "Funds deposited", tone: "info" },
-  CryptoWithdrawn: { label: "Owner withdrew funds", tone: "warn" },
-  CryptoClaimed: { label: "Funds withdrawn by beneficiary", tone: "good" },
+export const EVENT_TONES: Record<string, Tone> = {
+  EncryptionKeyRegistered: "info",
+  IdentityVerified: "good",
+  VaultCreated: "good",
+  GuardiansRotated: "warn",
+  Heartbeat: "good",
+  PanicFrozen: "bad",
+  VaultUnfrozen: "warn",
+  AssetAdded: "info",
+  AssetSharesUpdated: "info",
+  ClaimRaised: "warn",
+  Attested: "good",
+  ClaimRejectedByGuardian: "bad",
+  ClaimRejected: "bad",
+  FraudFlagged: "bad",
+  ClaimCancelled: "bad",
+  ClaimFinalized: "good",
+  ShareReleased: "info",
+  CryptoDeposited: "info",
+  CryptoWithdrawn: "warn",
+  CryptoClaimed: "good",
 };
+
+/** The event's display name in the active language (or `tr`'s, for output that is always English). Unknown events show their raw name. */
+export const eventLabel = (name: string, tr: Translator = rt) => (name in EVENT_TONES ? tr(`Events.label.${name}`) : name);
+export const eventTone = (name: string): Tone => EVENT_TONES[name] ?? "info";
 
 const ADDRESS_RE = /^0x[0-9a-fA-F]{40}$/;
 const num = (v: unknown) => (v === undefined ? undefined : Number(v));
@@ -56,35 +61,37 @@ export function addressesOf(e: HeirloomEvent): string[] {
 export type Formatters = { addr: (a: string) => string; hash: (h: string, n?: number) => string };
 const SHORT: Formatters = { addr: shortAddr, hash: shortHash };
 
-export function summarize(e: HeirloomEvent, me?: string, fmt: Formatters = SHORT): string {
+export function summarize(e: HeirloomEvent, me?: string, fmt: Formatters = SHORT, tr: Translator = rt): string {
   const a = e.args;
   const who = (v: unknown) => {
     const s = String(v);
-    return me && s.toLowerCase() === me.toLowerCase() ? "you" : fmt.addr(s);
+    return me && s.toLowerCase() === me.toLowerCase() ? tr("Events.you") : fmt.addr(s);
   };
   // Token symbols are not in the event; show the raw token address (or the native currency) with the amount in base units.
-  const money = (amount: unknown, token: unknown) => (/^0x0{40}$/i.test(String(token)) ? `${amount} wei of native currency` : `${amount} units of token ${fmt.addr(String(token))}`);
+  const money = (amount: unknown, token: unknown) =>
+    /^0x0{40}$/i.test(String(token)) ? tr("Events.moneyNative", { amount: String(amount) }) : tr("Events.moneyToken", { amount: String(amount), token: fmt.addr(String(token)) });
+  const text = (key: string, values: Record<string, string | number> = {}) => tr(`Events.summary.${key}`, values);
   switch (e.eventName) {
-    case "IdentityVerified": return `${who(a.account)} verified an identity with a zero-knowledge proof (pseudonym ${fmt.hash(String('0x' + BigInt(String(a.nullifier)).toString(16)), 4)})`;
-    case "EncryptionKeyRegistered": return `${who(a.account)} registered an encryption key`;
-    case "VaultCreated": return `${who(a.owner)} created a vault with ${(a.guardians as unknown[]).length} guardians (threshold ${a.threshold}, check-in every ${Math.round(Number(a.heartbeatInterval) / 60)} min)`;
-    case "GuardiansRotated": return `${who(a.owner)} replaced the guardians (${(a.guardians as unknown[]).length} guardians, threshold ${a.threshold}); files must be re-shared`;
-    case "Heartbeat": return `${who(a.owner)} checked in — any open claim is now invalid`;
-    case "PanicFrozen": return `${who(a.owner)} froze the vault`;
-    case "VaultUnfrozen": return `${who(a.owner)} unfroze the vault`;
-    case "AssetAdded": return `Asset #${a.assetId} reserved by ${who(a.owner)} for ${who(a.beneficiary)} (ciphertext ${fmt.hash(String(a.storageId), 5)})`;
-    case "AssetSharesUpdated": return `${who(a.owner)} re-shared asset #${a.assetId} to the current guardians`;
-    case "ClaimRaised": return `${who(a.claimant)} raised claim #${a.claimId} on asset #${a.assetId} (${EVIDENCE_TYPES[Number(a.evidenceType)]} evidence, hash ${fmt.hash(String(a.evidenceHash), 4)})`;
-    case "Attested": return `${who(a.guardian)} approved claim #${a.claimId} (${a.approvals} approval${Number(a.approvals) === 1 ? "" : "s"} so far)`;
-    case "ClaimRejectedByGuardian": return `${who(a.guardian)} rejected claim #${a.claimId} (reason hash ${fmt.hash(String(a.reasonHash), 4)})`;
-    case "ClaimRejected": return `Claim #${a.claimId} can no longer reach the guardian threshold and was closed`;
-    case "FraudFlagged": return `${who(a.guardian)} flagged claim #${a.claimId} as fraud — it can no longer be finalized`;
-    case "ClaimCancelled": return `${who(a.owner)} cancelled claim #${a.claimId}`;
-    case "ClaimFinalized": return `Claim #${a.claimId} was finalized by ${who(a.by)}; guardians can now release shares`;
-    case "ShareReleased": return `${who(a.guardian)} released their share for claim #${a.claimId} (guardian ${Number(a.guardianIndex) + 1})`;
-    case "CryptoDeposited": return `${money(a.amount, a.token)} locked in asset #${a.assetId} (${money(a.balance, a.token)} now held)`;
-    case "CryptoWithdrawn": return `${who(a.to)} took ${money(a.amount, a.token)} back out of asset #${a.assetId} (${money(a.balance, a.token)} remains)`;
-    case "CryptoClaimed": return `${who(a.beneficiary)} withdrew ${money(a.amount, a.token)} from asset #${a.assetId}`;
+    case "IdentityVerified": return text("IdentityVerified", { who: who(a.account), pseudonym: fmt.hash(String("0x" + BigInt(String(a.nullifier)).toString(16)), 4) });
+    case "EncryptionKeyRegistered": return text("EncryptionKeyRegistered", { who: who(a.account) });
+    case "VaultCreated": return text("VaultCreated", { who: who(a.owner), guardians: (a.guardians as unknown[]).length, threshold: String(a.threshold), minutes: Math.round(Number(a.heartbeatInterval) / 60) });
+    case "GuardiansRotated": return text("GuardiansRotated", { who: who(a.owner), guardians: (a.guardians as unknown[]).length, threshold: String(a.threshold) });
+    case "Heartbeat": return text("Heartbeat", { who: who(a.owner) });
+    case "PanicFrozen": return text("PanicFrozen", { who: who(a.owner) });
+    case "VaultUnfrozen": return text("VaultUnfrozen", { who: who(a.owner) });
+    case "AssetAdded": return text("AssetAdded", { assetId: String(a.assetId), owner: who(a.owner), beneficiary: who(a.beneficiary), storage: fmt.hash(String(a.storageId), 5) });
+    case "AssetSharesUpdated": return text("AssetSharesUpdated", { who: who(a.owner), assetId: String(a.assetId) });
+    case "ClaimRaised": return text("ClaimRaised", { who: who(a.claimant), claimId: String(a.claimId), assetId: String(a.assetId), evidence: tr(`Evidence.type.${EVIDENCE_TYPES[Number(a.evidenceType)]}`), hash: fmt.hash(String(a.evidenceHash), 4) });
+    case "Attested": return text("Attested", { who: who(a.guardian), claimId: String(a.claimId), approvals: Number(a.approvals) });
+    case "ClaimRejectedByGuardian": return text("ClaimRejectedByGuardian", { who: who(a.guardian), claimId: String(a.claimId), hash: fmt.hash(String(a.reasonHash), 4) });
+    case "ClaimRejected": return text("ClaimRejected", { claimId: String(a.claimId) });
+    case "FraudFlagged": return text("FraudFlagged", { who: who(a.guardian), claimId: String(a.claimId) });
+    case "ClaimCancelled": return text("ClaimCancelled", { who: who(a.owner), claimId: String(a.claimId) });
+    case "ClaimFinalized": return text("ClaimFinalized", { who: who(a.by), claimId: String(a.claimId) });
+    case "ShareReleased": return text("ShareReleased", { who: who(a.guardian), claimId: String(a.claimId), index: Number(a.guardianIndex) + 1 });
+    case "CryptoDeposited": return text("CryptoDeposited", { amount: money(a.amount, a.token), assetId: String(a.assetId), balance: money(a.balance, a.token) });
+    case "CryptoWithdrawn": return text("CryptoWithdrawn", { who: who(a.to), amount: money(a.amount, a.token), assetId: String(a.assetId), balance: money(a.balance, a.token) });
+    case "CryptoClaimed": return text("CryptoClaimed", { who: who(a.beneficiary), amount: money(a.amount, a.token), assetId: String(a.assetId) });
     default: return e.eventName;
   }
 }
