@@ -6,7 +6,9 @@ import { loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type Cla
 import { encryptFile, eciesEncrypt, splitKey, toHex } from "@/lib/crypto";
 import { pinCiphertext, MAX_UPLOAD_BYTES } from "@/lib/storage";
 import { UNITS, fmtDuration, fmtTime, shortAddr, shortHash, type Unit } from "@/lib/format";
-import { Badge, Btn, Card, Empty, Input, Label, Mono, Select } from "./ui";
+import { Badge, Btn, Card, EmptyState, Input, Label, ListSkeleton, Mono, Select, Stat, StatGrid } from "./ui";
+import { humanError } from "@/lib/errors";
+import { claimState } from "@/lib/hooks";
 import { ClaimInfo } from "./ClaimInfo";
 import { useKey } from "./KeyProvider";
 
@@ -44,11 +46,12 @@ export default function OwnerView() {
   const hasVault = useRead(["hasVault"], (c, k) => readers.hasVault(c, k, address!), { enabled: Boolean(address) });
   const vault = useRead(["vault"], (c, k) => readers.vault(c, k, address!), { enabled: hasVault.data === true });
 
-  if (hasVault.isLoading) return <Empty>Loading…</Empty>;
+  if (hasVault.isLoading || (hasVault.data && vault.isLoading)) return <ListSkeleton rows={2} />;
   return (
     <div className="space-y-4">
       {hasVault.data && vault.data ? (
         <>
+          <OwnerStats vault={vault.data} />
           <VaultCard vault={vault.data} />
           <UploadCard vault={vault.data} />
           <AssetsCard />
@@ -85,7 +88,7 @@ function CreateVault() {
 
   return (
     <Card title="Create your vault">
-      <p className="text-sm text-slate-400">
+      <p className="text-sm text-muted">
         Choose 3–7 guardians. Each must have signed in to Heirloom and registered an encryption key. Guardians never see your files; together
         (at the threshold) they can release the key to your beneficiaries when you are gone.
       </p>
@@ -125,12 +128,12 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
   };
   return (
     <Card title="Your vault" right={vault.frozen ? <Badge tone="warn">Frozen</Badge> : <Badge tone="good">Active</Badge>}>
-      <p className="text-sm text-slate-300">
+      <p className="text-sm text-ink-2">
         Last check-in {fmtTime(vault.lastHeartbeat)} ·{" "}
-        {now < due ? <>next due in <b data-testid="next-due">{fmtDuration(due - now)}</b></> : <span className="text-amber-400">overdue by {fmtDuration(now - due)}</span>}
+        {now < due ? <>next due in <b data-testid="next-due">{fmtDuration(due - now)}</b></> : <span className="text-warn">overdue by {fmtDuration(now - due)}</span>}
         {" "}· interval {fmtDuration(vault.heartbeatInterval)}
       </p>
-      <p className="text-sm text-slate-400">Guardians (need {vault.threshold} of {vault.guardians.length}):</p>
+      <p className="text-sm text-muted">Guardians (need {vault.threshold} of {vault.guardians.length}):</p>
       <ul className="space-y-0.5">{vault.guardians.map((g) => <li key={g}><Mono>{g}</Mono></li>)}</ul>
       <div className="flex flex-wrap gap-2">
         <Btn disabled={busy} onClick={() => act("Check in", "heartbeat")} data-testid="heartbeat">I&apos;m alive</Btn>
@@ -138,7 +141,7 @@ function VaultCard({ vault }: { vault: import("@/lib/contract").Vault }) {
           ? <Btn tone="ghost" disabled={busy} onClick={() => act("Unfreeze vault", "unfreeze")} data-testid="unfreeze">Unfreeze (counts as check-in)</Btn>
           : <Btn tone="danger" disabled={busy} onClick={() => act("Freeze vault", "panicFreeze")} data-testid="freeze">Panic freeze</Btn>}
       </div>
-      {vault.frozen && <p className="text-xs text-amber-400">While frozen, no claim can be raised, approved or finalized.</p>}
+      {vault.frozen && <p className="text-xs text-warn">While frozen, no claim can be raised, approved or finalized.</p>}
     </Card>
   );
 }
@@ -197,7 +200,7 @@ function UploadCard({ vault }: { vault: import("@/lib/contract").Vault }) {
         setBeneficiary("");
       }
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(humanError(e));
     } finally {
       setProgress("");
       setBusy(false);
@@ -209,7 +212,7 @@ function UploadCard({ vault }: { vault: import("@/lib/contract").Vault }) {
       <Label text="File (encrypted in your browser before upload, max ~17 MB)">
         <input type="file" data-testid="asset-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
       </Label>
-      {tooBig && <p className="text-xs text-red-400">File is too large.</p>}
+      {tooBig && <p className="text-xs text-bad">File is too large.</p>}
       <Label text="Beneficiary address" hint={beneficiary === "" ? undefined : beneficiary.toLowerCase() === vault.owner.toLowerCase() ? "You cannot be your own beneficiary" : STATUS_TEXT[status(beneficiary)]}>
         <Input placeholder="0x…" value={beneficiary} data-testid="beneficiary" onChange={(e) => setBeneficiary(e.target.value.trim())} />
       </Label>
@@ -237,18 +240,16 @@ function UploadCard({ vault }: { vault: import("@/lib/contract").Vault }) {
           <Input type="datetime-local" value={unlock} onChange={(e) => setUnlock(e.target.value)} />
         </Label>
       </div>
-      {!periodsOk && <p className="text-xs text-red-400">Every period must be at least 5 minutes.</p>}
+      {!periodsOk && <p className="text-xs text-bad">Every period must be at least 5 minutes.</p>}
       <Btn disabled={!valid || busy} onClick={submit} data-testid="add-asset">{busy ? progress || "Working…" : "Encrypt & reserve"}</Btn>
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-bad">{error}</p>}
     </Card>
   );
 }
 
-function AssetsCard() {
-  const send = useTx();
+function useOwnerAssets() {
   const { address } = useHeirloom();
-  const [busy, setBusy] = useState(false);
-  const list = useRead(["ownerAssets"], async (c, k) => {
+  return useRead(["ownerAssets"], async (c, k) => {
     const ids = await readers.ids(c, k, "assetsByOwner", address!);
     return Promise.all(ids.map(async (id) => {
       const asset = await readers.asset(c, k, id);
@@ -256,17 +257,39 @@ function AssetsCard() {
       return { asset, bundle };
     }));
   }, { enabled: Boolean(address) });
+}
+
+function OwnerStats({ vault }: { vault: import("@/lib/contract").Vault }) {
+  const list = useOwnerAssets();
+  const now = useNow();
+  const open = (list.data ?? []).filter((r) => r.bundle && claimState(r.bundle).open).length;
+  const due = vault.lastHeartbeat + vault.heartbeatInterval;
+  return (
+    <StatGrid>
+      <Stat label="Reserved files" value={list.isLoading ? "…" : list.data?.length ?? 0} />
+      <Stat label="Open claims" value={list.isLoading ? "…" : open} tone={open ? "bad" : "good"} />
+      <Stat label="Next check-in" value={now < due ? fmtDuration(due - now) : "Overdue"} tone={now < due ? "info" : "warn"} />
+    </StatGrid>
+  );
+}
+
+function AssetsCard() {
+  const send = useTx();
+  const [busy, setBusy] = useState(false);
+  const list = useOwnerAssets();
 
   return (
     <Card title="Reserved files">
-      {list.data?.length === 0 && <Empty>Nothing reserved yet.</Empty>}
+      {list.isLoading && <ListSkeleton rows={2} />}
+      {list.isError && <p className="text-sm text-bad">Could not load your files. Retrying…</p>}
+      {list.data?.length === 0 && <EmptyState title="Nothing reserved yet" hint="Reserve a file above. It is encrypted in your browser and only your chosen beneficiary can ever open it." />}
       {[...(list.data ?? [])].reverse().map(({ asset, bundle }) => (
-        <div key={asset.id} className="space-y-2 rounded-lg border border-slate-700 p-3 text-sm text-slate-300" data-testid={`asset-${asset.id}`}>
+        <div key={asset.id} className="space-y-2 rounded-lg border border-line p-3 text-sm text-ink-2" data-testid={`asset-${asset.id}`}>
           <div className="flex flex-wrap items-center gap-2">
             <b>Asset #{asset.id}</b> → {shortAddr(asset.beneficiary)}
             {asset.released && <Badge tone="good">Released</Badge>}
           </div>
-          <p className="text-xs text-slate-400">
+          <p className="text-xs text-muted">
             ciphertext {shortHash(asset.storageId, 6)} · hash {shortHash(asset.contentHash, 6)} · {asset.policy.requiredApprovals} approvals · challenge {fmtDuration(asset.policy.challengePeriod)} · inactivity {fmtDuration(asset.policy.minInactivity)}
           </p>
           {bundle && (

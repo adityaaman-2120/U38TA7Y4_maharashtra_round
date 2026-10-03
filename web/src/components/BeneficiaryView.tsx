@@ -6,7 +6,8 @@ import { combineShares, decryptFile, downloadBytes, eciesDecrypt, fromHex, sealE
 import { MAX_UPLOAD_BYTES, fetchCiphertext, pinCiphertext } from "@/lib/storage";
 import { fmtDuration, shortAddr, shortHash } from "@/lib/format";
 import type { Asset, Vault } from "@/lib/contract";
-import { Badge, Btn, Card, Empty, Label, Select } from "./ui";
+import { Badge, Btn, EmptyState, Label, ListSkeleton, Select, Stat, StatGrid } from "./ui";
+import { humanError } from "@/lib/errors";
 import { ClaimInfo } from "./ClaimInfo";
 import { useKey } from "./KeyProvider";
 
@@ -26,12 +27,23 @@ export default function BeneficiaryView() {
     }));
   }, { enabled: Boolean(address) });
 
+  const rows = [...(list.data ?? [])].reverse();
+  const openClaims = rows.filter((r) => r.bundle && claimState(r.bundle).open).length;
+  const ready = rows.filter((r) => r.bundle?.claim.status === 3 && r.bundle.released.filter((x) => x !== "0x").length >= r.vault.threshold).length;
+
   return (
-    <Card title="Files reserved for you">
-      <p className="text-xs text-slate-500">You can see that a file exists, never what it contains, until the guardians release it.</p>
-      {list.data?.length === 0 && <Empty>Nothing is reserved for this address.</Empty>}
-      {[...(list.data ?? [])].reverse().map((r) => <AssetRow key={r.asset.id} row={r} />)}
-    </Card>
+    <div className="space-y-4">
+      <StatGrid>
+        <Stat label="Reserved for you" value={list.isLoading ? "…" : rows.length} />
+        <Stat label="Open claims" value={list.isLoading ? "…" : openClaims} tone={openClaims ? "warn" : "info"} />
+        <Stat label="Ready to decrypt" value={list.isLoading ? "…" : ready} tone={ready ? "good" : "info"} />
+      </StatGrid>
+      <h2 className="text-lg font-semibold text-ink">Files reserved for you</h2>
+      <p className="text-xs text-faint">You can see that a file exists, never what it contains, until the guardians release it.</p>
+      {list.isLoading ? <ListSkeleton /> : list.isError ? <p className="text-sm text-bad">Could not load your files. Retrying…</p> : rows.length === 0 ? (
+        <EmptyState title="Nothing is reserved for this address" hint="When someone reserves a file for you, it appears here. Make sure you have registered your encryption key and shared your address with them." />
+      ) : rows.map((r) => <AssetRow key={r.asset.id} row={r} />)}
+    </div>
   );
 }
 
@@ -66,7 +78,7 @@ function AssetRow({ row }: { row: Row }) {
     try {
       await fn();
     } catch (e) {
-      setError(e instanceof Error ? e.message : String(e));
+      setError(humanError(e));
     } finally {
       setProgress("");
       setBusy(false);
@@ -114,20 +126,20 @@ function AssetRow({ row }: { row: Row }) {
   const released = bundle ? bundle.released.filter((s) => s !== "0x").length : 0;
 
   return (
-    <div className="space-y-2 rounded-lg border border-slate-700 p-3 text-sm text-slate-300" data-testid={`asset-${asset.id}`}>
+    <div className="space-y-2 rounded-lg border border-line p-3 text-sm text-ink-2" data-testid={`asset-${asset.id}`}>
       <div className="flex flex-wrap items-center gap-2">
         <b>Asset #{asset.id}</b> from {shortAddr(asset.owner)}
         <Badge tone="info">Encrypted</Badge>
         {vault.frozen && <Badge tone="warn">Vault frozen</Badge>}
       </div>
-      <p className="text-xs text-slate-400">ciphertext {shortHash(asset.storageId, 6)} · hash {shortHash(asset.contentHash, 6)}</p>
+      <p className="text-xs text-muted">ciphertext {shortHash(asset.storageId, 6)} · hash {shortHash(asset.contentHash, 6)}</p>
 
       {bundle && (
         <ClaimInfo bundle={bundle}>
           {st!.open && <Btn disabled={busy} data-testid="finalize" onClick={() => guard(async () => { await send("Finalize claim", "finalizeClaim", [BigInt(bundle.claim.id)]); })}>Finalize</Btn>}
           {bundle.claim.status === 3 && (
             <div className="w-full space-y-1">
-              <p className="text-xs text-slate-400">Shares released by guardians: {released} / {vault.threshold} needed</p>
+              <p className="text-xs text-muted">Shares released by guardians: {released} / {vault.threshold} needed</p>
               <Btn disabled={busy || released < vault.threshold} data-testid="decrypt" onClick={decrypt}>{busy && progress ? progress : "Decrypt & download"}</Btn>
             </div>
           )}
@@ -135,11 +147,11 @@ function AssetRow({ row }: { row: Row }) {
       )}
 
       {canRaise && (
-        <div className="space-y-2 rounded-lg bg-slate-800/50 p-3">
+        <div className="space-y-2 rounded-lg bg-sunken p-3">
           <p className="font-medium">Raise a claim</p>
-          {now < availableAt && <p className="text-xs text-amber-400">The owner has been active recently. A claim can be raised in {fmtDuration(availableAt - now)}.</p>}
-          {stale && <p className="text-xs text-amber-400">The owner changed guardians and has not re-shared this file yet.</p>}
-          {vault.frozen && <p className="text-xs text-amber-400">The owner has frozen this vault.</p>}
+          {now < availableAt && <p className="text-xs text-warn">The owner has been active recently. A claim can be raised in {fmtDuration(availableAt - now)}.</p>}
+          {stale && <p className="text-xs text-warn">The owner changed guardians and has not re-shared this file yet.</p>}
+          {vault.frozen && <p className="text-xs text-warn">The owner has frozen this vault.</p>}
           <div className="grid gap-3 sm:grid-cols-2">
             <Label text="Evidence type">
               <Select value={evType} onChange={(e) => setEvType(Number(e.target.value))} data-testid="evidence-type">
@@ -150,14 +162,14 @@ function AssetRow({ row }: { row: Row }) {
               <input type="file" data-testid="evidence-file" onChange={(e) => setFile(e.target.files?.[0] ?? null)} className="text-sm" />
             </Label>
           </div>
-          {tooBig && <p className="text-xs text-red-400">Evidence file is too large.</p>}
+          {tooBig && <p className="text-xs text-bad">Evidence file is too large.</p>}
           <Btn disabled={busy || !file || tooBig || now < availableAt || stale || vault.frozen} data-testid="raise-claim" onClick={raise}>
             {busy && progress ? progress : "Raise claim"}
           </Btn>
         </div>
       )}
-      {verified && <p className="font-semibold text-emerald-400" data-testid="integrity">{verified}</p>}
-      {error && <p className="text-xs text-red-400">{error}</p>}
+      {verified && <p className="font-semibold text-ok" data-testid="integrity">{verified}</p>}
+      {error && <p className="text-xs text-bad">{error}</p>}
     </div>
   );
 }

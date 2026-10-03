@@ -22,6 +22,19 @@ export const heirloomDeployments = ${JSON.stringify(deployments, null, 2)} as co
   fs.writeFileSync(OUT, ts);
 }
 
+// Local chains start empty every time. Top up your own wallet(s) so MetaMask never shows a fee warning.
+// Addresses come from FUND_ADDRESSES (comma-separated) and/or contracts/fund.local.json (a JSON array; gitignored).
+async function fundLocalWallets() {
+  const list = [...(process.env.FUND_ADDRESSES ? process.env.FUND_ADDRESSES.split(",") : [])];
+  const file = path.join(__dirname, "..", "fund.local.json");
+  if (fs.existsSync(file)) list.push(...JSON.parse(fs.readFileSync(file, "utf8")));
+  for (const raw of list.map((a) => a.trim()).filter(Boolean)) {
+    const addr = hre.ethers.getAddress(raw);
+    await hre.network.provider.send("hardhat_setBalance", [addr, "0x" + (10_000n * 10n ** 18n).toString(16)]);
+    console.log(`Funded ${addr} with 10000 test ETH`);
+  }
+}
+
 async function main() {
   const [deployer] = await hre.ethers.getSigners();
   if (!deployer) throw new Error("No deployer account. For amoy set DEPLOYER_PRIVATE_KEY (and AMOY_RPC_URL).");
@@ -38,6 +51,7 @@ async function main() {
     JSON.stringify({ chainId: Number(chainId), address, startBlock: receipt.blockNumber, deployer: deployer.address }, null, 2)
   );
   writeContractsTs(JSON.parse(factory.interface.formatJson()));
+  if (["localhost", "hardhat"].includes(hre.network.name)) await fundLocalWallets();
   console.log(`Heirloom deployed to ${address} on ${hre.network.name} (chainId ${chainId}, block ${receipt.blockNumber})`);
 }
 

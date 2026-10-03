@@ -68,7 +68,7 @@ export function KeyGate({ children }: { children: ReactNode }) {
 
   return (
     <div className="mx-auto max-w-lg">
-      {status === "loading" && <p className="text-slate-400">Loading your account…</p>}
+      {status === "loading" && <p className="text-muted">Loading your account…</p>}
 
       {status === "setup" && (
         <SetupForm busy={busy} error={error} onSubmit={(pw) => guard(async () => {
@@ -82,7 +82,7 @@ export function KeyGate({ children }: { children: ReactNode }) {
 
       {status === "backup" && blob && (
         <Card title="Download your recovery file">
-          <p className="text-sm text-slate-300">
+          <p className="text-sm text-ink-2">
             Your encryption key exists only in this browser. If you lose this browser data you can no longer decrypt anything, and nobody — including us — can recover it.
             Save the recovery file somewhere safe. It is encrypted with your password.
           </p>
@@ -92,8 +92,8 @@ export function KeyGate({ children }: { children: ReactNode }) {
 
       {status === "register" && blob && (
         <Card title="Register your encryption key">
-          <p className="text-sm text-slate-300">Publish your <b>public</b> key on-chain so others can encrypt to you. The private key stays here.</p>
-          <p className="break-all font-mono text-xs text-slate-500">{blob.publicKey}</p>
+          <p className="text-sm text-ink-2">Publish your <b>public</b> key on-chain so others can encrypt to you. The private key stays here.</p>
+          <p className="break-all font-mono text-xs text-faint">{blob.publicKey}</p>
           <Btn data-testid="register-key" disabled={busy} onClick={() => guard(async () => { await send("Register encryption key", "registerEncryptionKey", [blob.publicKey]); })}>
             Register on-chain
           </Btn>
@@ -119,14 +119,14 @@ function SetupForm({ busy, error, onSubmit }: { busy: boolean; error: string; on
   return (
     <Card title="Set your encryption password">
       <form onSubmit={submit} className="space-y-3">
-        <p className="text-sm text-slate-300">
+        <p className="text-sm text-ink-2">
           This password protects your encryption key, which is generated in your browser. It is separate from your wallet and <b>cannot be reset</b>.
         </p>
         <Input type="password" autoComplete="new-password" placeholder="Encryption password" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="pw" />
         <Input type="password" autoComplete="new-password" placeholder="Repeat password" value={pw2} onChange={(e) => setPw2(e.target.value)} data-testid="pw2" />
-        {pw && problem && <p className="text-xs text-amber-400">{problem}</p>}
+        {pw && problem && <p className="text-xs text-warn">{problem}</p>}
         <Btn type="submit" disabled={busy || Boolean(problem)} data-testid="create-key">{busy ? "Generating key…" : "Create encryption key"}</Btn>
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-bad">{error}</p>}
       </form>
     </Card>
   );
@@ -139,7 +139,7 @@ function UnlockForm({ busy, error, onSubmit }: { busy: boolean; error: string; o
       <form onSubmit={(e) => { e.preventDefault(); onSubmit(pw); }} className="space-y-3">
         <Input type="password" autoComplete="current-password" placeholder="Encryption password" value={pw} onChange={(e) => setPw(e.target.value)} data-testid="unlock-pw" />
         <Btn type="submit" disabled={busy || !pw} data-testid="unlock">{busy ? "Unlocking…" : "Unlock"}</Btn>
-        {error && <p className="text-sm text-red-400">{error}</p>}
+        {error && <p className="text-sm text-bad">{error}</p>}
       </form>
     </Card>
   );
@@ -160,13 +160,13 @@ function ImportForm({ address, onchain, mismatch, onImport }: { address: string;
   };
   return (
     <Card title="Import your recovery file">
-      <p className="text-sm text-slate-300">
+      <p className="text-sm text-ink-2">
         {mismatch
           ? "The key stored in this browser does not match the key registered on-chain for this account. Import the correct recovery file."
           : "An encryption key is already registered for this account, but it is not in this browser. Import your recovery file to continue."}
       </p>
       <input type="file" accept="application/json,.json" data-testid="import-file" onChange={(e) => onFile(e.target.files?.[0])} className="text-sm" />
-      {error && <p className="text-sm text-red-400">{error}</p>}
+      {error && <p className="text-sm text-bad">{error}</p>}
     </Card>
   );
 }

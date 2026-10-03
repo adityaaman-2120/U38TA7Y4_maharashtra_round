@@ -21,3 +21,5 @@ const EXPLORERS: Record<number, string> = {
 };
 
 export const explorerTxUrl = (chainId: number, hash: string) => (EXPLORERS[chainId] ? `${EXPLORERS[chainId]}/tx/${hash}` : null);
+
+export const explorerAddressUrl = (chainId: number, address: string) => (EXPLORERS[chainId] ? `${EXPLORERS[chainId]}/address/${address}` : null);

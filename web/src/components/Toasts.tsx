@@ -53,17 +53,17 @@ export function ToastProvider({ children }: { children: ReactNode }) {
       <div className="fixed bottom-4 right-4 z-50 flex w-80 flex-col gap-2" role="status" aria-live="polite">
         {toasts.map((t) => {
           const url = t.hash && t.chainId ? explorerTxUrl(t.chainId, t.hash) : null;
-          const tone = t.kind === "error" ? "border-red-500/60" : t.kind === "success" ? "border-emerald-500/60" : "border-indigo-500/60";
+          const tone = t.kind === "error" ? "border-bad/40" : t.kind === "success" ? "border-ok/40" : "border-line-strong";
           return (
-            <div key={t.id} data-testid={`toast-${t.kind}`} className={`rounded-lg border ${tone} bg-slate-900 p-3 text-sm text-slate-100 shadow-lg`}>
+            <div key={t.id} data-testid={`toast-${t.kind}`} className={`rounded-xl border ${tone} bg-surface p-3.5 text-sm text-ink shadow-[0_12px_32px_-12px_rgba(21,24,29,0.35)]`}>
               <div className="flex items-start justify-between gap-2">
                 <p className="break-words">{t.kind === "pending" ? "⏳ " : t.kind === "success" ? "✓ " : "✗ "}{t.message}</p>
-                <button onClick={() => dismiss(t.id)} aria-label="Dismiss" className="text-slate-400 hover:text-white">×</button>
+                <button onClick={() => dismiss(t.id)} aria-label="Dismiss" className="text-muted hover:text-ink">×</button>
               </div>
               {t.hash && (
-                <p className="mt-1 text-xs text-slate-400">
+                <p className="mt-1 text-xs text-muted">
                   Tx{" "}
-                  {url ? <a href={url} target="_blank" rel="noreferrer" className="text-indigo-400 underline">{shortHash(t.hash, 6)} on explorer</a> : <span className="font-mono">{shortHash(t.hash, 6)}</span>}
+                  {url ? <a href={url} target="_blank" rel="noreferrer" className="text-accent underline">{shortHash(t.hash, 6)} on explorer</a> : <span className="font-mono">{shortHash(t.hash, 6)}</span>}
                 </p>
               )}
             </div>

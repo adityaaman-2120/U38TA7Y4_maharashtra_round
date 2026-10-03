@@ -52,9 +52,14 @@ npm --prefix web run typecheck
 3. **Beneficiary** — sees reserved files (never content), raises a claim with encrypted evidence once the owner has been silent
    long enough, finalizes after the challenge period, then decrypts once enough guardians released their shares. The SHA-256 of
    the result is checked against the on-chain hash ("Integrity verified").
-4. **Guardian** — reviews claims (decrypting the evidence shared with them), approves / rejects / flags fraud, and after
-   finalization re-encrypts their share to the beneficiary.
-5. **Activity** — audit trail built from the contract's events.
+4. **Guardian** — decrypts and previews the claim's evidence in the browser (approval stays locked until they have), then
+   approves / rejects / flags fraud; after finalization re-encrypts their share to the beneficiary.
+5. **Audit** — every contract event with readable labels, filters (asset, claim, event type, actor, "only mine") and explorer links.
+
+### Evidence
+The beneficiary's evidence file is encrypted with a fresh AES-256-GCM key. That key is ECIES-wrapped to each guardian and the
+owner, and the wraps are stored inside the encrypted bundle on IPFS. On-chain there is only `evidenceHash` (SHA-256 of the
+plaintext) and the bundle's storage id. Guardians check the decrypted file against that hash before relying on it.
 
 ## Storage API
 `POST /api/storage` (`Content-Type: application/octet-stream`, ≤ 25 MB) pins ciphertext to Pinata using the server-side
