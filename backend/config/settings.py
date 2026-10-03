@@ -40,6 +40,7 @@ INSTALLED_APPS = [
     "invites",
     "indexer",
     "notifications",
+    "alerts",
 ]
 
 MIDDLEWARE = [
@@ -128,6 +129,10 @@ REST_FRAMEWORK = {
         "invite_preview": "30/min",
         "invite_create": "30/hour",
         "invite_resend": "10/hour",
+        "alive_preview": "30/min",
+        "alive_consume": "20/min",
+        "verify_start": "6/hour",
+        "verify_confirm": "30/hour",
     },
     "UNAUTHENTICATED_USER": None,
 }
@@ -175,6 +180,15 @@ INDEX_STALE_AFTER_SECONDS = int(env("INDEX_STALE_AFTER_SECONDS", "120"))
 HEARTBEAT_REMINDER_FRACTION = 0.25  # remind the owner once this fraction of the check-in interval remains
 DEADLINE_REMINDER_FRACTION = 0.25  # remind silent guardians once this fraction of the attestation window remains
 
+# ---- Claim alerts (owner escalation, guardian warning) --------------------------------------------
+ALERT_SMS_AFTER_SECONDS = int(env("ALERT_SMS_AFTER_SECONDS", str(72 * 3600)))  # SMS the owner this long after the claim, if no check-in
+ALERT_GUARDIAN_BEFORE_END_SECONDS = int(env("ALERT_GUARDIAN_BEFORE_END_SECONDS", str(24 * 3600)))  # warn guardians this long before the end
+VERIFICATION_CODE_TTL_SECONDS = int(env("VERIFICATION_CODE_TTL_SECONDS", "600"))
+SMS_BACKEND = env("SMS_BACKEND", "alerts.sms.TwilioBackend")
+TWILIO_ACCOUNT_SID = env("TWILIO_ACCOUNT_SID", "")
+TWILIO_AUTH_TOKEN = env("TWILIO_AUTH_TOKEN", "")
+TWILIO_FROM_NUMBER = env("TWILIO_FROM_NUMBER", "")  # a Twilio number or messaging-service sender, E.164
+
 # ---- Celery -----------------------------------------------------------------------------------
 _broker = env("CELERY_BROKER_URL") or (REDIS_URL.rsplit("/", 1)[0] + "/1" if REDIS_URL else "memory://")
 CELERY_BROKER_URL = _broker
@@ -187,4 +201,5 @@ CELERY_TASK_TIME_LIMIT = 300
 CELERY_BEAT_SCHEDULE = {
     "index-chain-events": {"task": "indexer.index_all_chains", "schedule": float(env("INDEX_INTERVAL_SECONDS", "15"))},
     "heartbeat-and-deadline-reminders": {"task": "notifications.send_reminders", "schedule": float(env("REMINDER_INTERVAL_SECONDS", "300"))},
+    "claim-escalations": {"task": "alerts.run_escalations", "schedule": float(env("REMINDER_INTERVAL_SECONDS", "300"))},
 }

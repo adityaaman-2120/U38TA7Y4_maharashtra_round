@@ -21,6 +21,7 @@ class ChainClient(Protocol):
     def events(self, from_block: int, to_block: int) -> list[RawEvent]: ...
     def tx_from(self, tx_hash: str) -> str: ...
     def asset_policy(self, asset_id: int) -> dict: ...  # attestationDeadline, challengePeriod, requiredApprovals, ...
+    def claim_invalidated(self, claim_id: int) -> bool: ...  # the owner checked in after the claim was raised
 
 
 def _policy_from_asset(abi: list, asset) -> dict:
@@ -93,3 +94,6 @@ class Web3Client:
 
     def asset_policy(self, asset_id: int) -> dict:
         return _policy_from_asset(self.contract.abi, self.contract.functions.getAsset(asset_id).call())
+
+    def claim_invalidated(self, claim_id: int) -> bool:
+        return bool(self.contract.functions.isClaimInvalidated(claim_id).call())

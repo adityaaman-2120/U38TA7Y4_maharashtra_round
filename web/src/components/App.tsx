@@ -50,7 +50,7 @@ export function Shell({ children, prefillEmail, banner }: { children: ReactNode;
   );
 }
 
-function Header() {
+export function Header() {
   const { address, chainId, isConnected } = useHeirloom();
   const { mutate: disconnect } = useDisconnect();
   const leave = async () => {
@@ -89,7 +89,8 @@ function Welcome({ children }: { children: ReactNode }) {
   );
 }
 
-function Gate({ children, prefillEmail }: { children: ReactNode; prefillEmail?: string }) {
+/** Everything before an account exists: a connected wallet on a network Heirloom is deployed on. */
+export function WalletGate({ children }: { children: ReactNode }) {
   const { isConnected, supported, deployment, chainId } = useHeirloom();
   const connectors = useConnectors();
   const { mutate: connect, isPending, error } = useConnect();
@@ -129,14 +130,32 @@ function Gate({ children, prefillEmail }: { children: ReactNode; prefillEmail?: 
     );
   }
 
+  return <DeploymentGuard>{children}</DeploymentGuard>;
+}
+
+function Gate({ children, prefillEmail }: { children: ReactNode; prefillEmail?: string }) {
   return (
-    <DeploymentGuard>
+    <WalletGate>
       <SessionGate prefillEmail={prefillEmail}>
         <KeyGate>
           <IdentityGate>{children}</IdentityGate>
         </KeyGate>
       </SessionGate>
-    </DeploymentGuard>
+    </WalletGate>
+  );
+}
+
+/** A page that needs only a wallet (no account, no unlocked key), such as the emailed check-in link. */
+export function WalletShell({ children }: { children: ReactNode }) {
+  const mounted = useSyncExternalStore(() => () => {}, () => true, () => false);
+  if (!mounted) return null;
+  return (
+    <div className="min-h-screen">
+      <Header />
+      <div className="mx-auto max-w-6xl px-4 py-8 sm:px-6">
+        <WalletGate>{children}</WalletGate>
+      </div>
+    </div>
   );
 }
 

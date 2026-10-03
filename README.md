@@ -85,6 +85,9 @@ Never files, plaintext keys, DEKs or shares. Nothing personal goes on-chain.
 | `GET /api/contacts?role=` | Accepted invitees: the only people the owner can pick as guardians or beneficiaries in the app. |
 | `GET /api/events` | Indexed contract events, newest first. Filters: `chain_id`, `asset_id`, `claim_id`, `actor`, `event`; paging with `limit` and `before_id`. Also returns each chain's indexer progress. |
 | `GET /api/notifications`, `POST /api/notifications/read` | The signed-in user's in-app notifications (feeds the bell); mark by `ids` or `all`. |
+| `GET/PUT /api/alerts/settings` | Alert channels (email, SMS), verification status, and the last alerts sent (kind, channel, status, time only). SMS can only be switched on for a verified phone. |
+| `POST /api/alerts/verify/start`, `POST /api/alerts/verify/confirm` | Contact verification: a 6-digit code (10 min, 5 guesses, stored only as a keyed hash) sent to the email or phone on file. Changing a contact makes it unverified again. |
+| `GET /api/alive/preview`, `POST /api/alive/consume` | The emailed "I'm alive" link (public; the signed token is the credential and grants no power by itself). `consume` checks on-chain that the claim is void, then retires the link. |
 
 ### Indexer and notifications
 Celery beat runs two scheduled tasks (`worker` executes them, `beat` schedules them; run exactly one beat):
@@ -107,6 +110,26 @@ New events become in-app notifications and emails (queued as separate Celery tas
 | ClaimCancelled | claimant and guardians |
 | ClaimFinalized | beneficiary, and guardians (urgent: release your share) |
 | ShareReleased | beneficiary |
+
+### Claim alerts (owner escalation)
+When a claim is raised the owner must find out fast, because one check-in cancels it. `alerts.escalate_claim` runs right after the `ClaimRaised` event is processed and
+`alerts.run_escalations` (beat, every 5 min) runs whatever has become due, so everything below is idempotent and retried:
+
+| When | What |
+|---|---|
+| Immediately | **Email** to the owner with a one-time link `/alive?claim=<id>&t=<token>`. The page connects the owner's wallet and sends `heartbeat`, which invalidates the claim on-chain. |
+| `ALERT_SMS_AFTER_SECONDS` later (default 72 h), no check-in yet, challenge still running | **SMS** (Twilio) with a fresh single-use link. Only to a *verified* number, and only if the owner enabled SMS. |
+| `ALERT_GUARDIAN_BEFORE_END_SECONDS` before the challenge ends (default 24 h) | Guardians who have not responded are alerted (in-app + email). Skipped when the challenge is shorter than that window, because the "claim raised" alert already was the warning. |
+
+* **The link.** Signed, names only an internal id, and expires **when the challenge period ends** (chain time). It is single use: after the check-in the page calls
+  `consume`, the server confirms `isClaimInvalidated` on-chain, and every link for the claim is retired. It never moves anything by itself: only a transaction signed by the
+  owner's wallet counts, and another wallet is told to switch. Closed, cancelled, finalized or already-checked-in claims stop all escalation.
+* **Settings** (Account page): email on/off, SMS on/off, and contact verification by code. Email alerts go to the address on file even if unverified (better to reach you than
+  to stay silent); SMS goes only to a verified number, because a mistyped number could text a stranger.
+* **Twilio.** Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` in `backend/.env`. Without them SMS alerts and phone verification are off (the Account page says so).
+  `SMS_BACKEND` can point at another provider class (`available()` and `send(to, body)`).
+* **The log.** Every attempt is a row in `AlertLog` (kind, channel, sent/failed/skipped, short reason, provider message id, time) and one log line. Neither holds an email address,
+  phone number, name, wallet address, link or message text. A failed attempt is retried until it is sent; only a sent alert stops further tries.
 
 Only people with a Heirloom account are notified; others are skipped. The audit page reads from `/api/events` and falls back to reading the chain
 directly if the indexer is unreachable, stalled, reporting an error, or more than 200 blocks behind.

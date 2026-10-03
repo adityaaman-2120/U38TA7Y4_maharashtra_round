@@ -127,6 +127,8 @@ def create_for_event(ev: ChainEvent) -> list[Notification]:
 
 def process_pending_events(limit: int = 500) -> int:
     """Creates notifications for newly indexed events and queues their emails. Safe to run repeatedly."""
+    from alerts.tasks import escalate_claim
+
     from .tasks import send_notification_email
 
     done = 0
@@ -135,6 +137,9 @@ def process_pending_events(limit: int = 500) -> int:
             fresh = create_for_event(ev)
             ChainEvent.objects.filter(pk=ev.pk).update(processed=True)
         for n in fresh:  # queued only once the rows are committed, so a worker can always find them
-            send_notification_email.delay(n.pk)
+            if n.kind != "claim_raised_owner":  # the owner's email is the alerts module's: it carries the one-time check-in link
+                send_notification_email.delay(n.pk)
+        if ev.event_name == "ClaimRaised":
+            escalate_claim.delay(ev.pk)
         done += 1
     return done

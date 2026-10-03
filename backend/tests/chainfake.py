@@ -25,6 +25,7 @@ class FakeChain:
         self.senders: dict[str, str] = {}
         self.policies: dict[int, dict] = {}
         self.fail_policy = False
+        self.invalidated: set[int] = set()  # claims the owner has checked in on
         self.time_offset = 0  # lets a test move the head time without mining
 
     # -- ChainClient --------------------------------------------------------------------------
@@ -50,6 +51,9 @@ class FakeChain:
         if self.fail_policy:
             raise RuntimeError("rpc down")
         return self.policies[asset_id]
+
+    def claim_invalidated(self, claim_id):
+        return claim_id in self.invalidated
 
     # -- scripting ----------------------------------------------------------------------------
     def emit(self, name, args, block, sender, log_index=0):

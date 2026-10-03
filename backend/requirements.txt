@@ -11,3 +11,4 @@ django-cors-headers>=4.6,<5
 gunicorn>=23,<27
 celery>=5.4,<6
 web3>=7,<8
+requests>=2.32,<3

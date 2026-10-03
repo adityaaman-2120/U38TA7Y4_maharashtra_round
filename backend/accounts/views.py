@@ -80,8 +80,12 @@ class MeView(APIView):
     def put(self, request):
         s = ProfileUpdateSerializer(data=request.data)
         s.is_valid(raise_exception=True)
+        from alerts.verification import on_profile_change
+
         user = request.user
+        old_email, old_phone = user.email, user.phone
         for field, value in s.validated_data.items():
             setattr(user, field, value)
         user.save(update_fields=list(s.validated_data))
+        on_profile_change(user, old_email, old_phone)  # a changed contact has to be verified again
         return Response(UserSerializer(user).data)

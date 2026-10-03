@@ -3,6 +3,7 @@ from unittest import mock
 from django.core import mail
 from django.test import TestCase, override_settings
 
+from alerts.models import AlertLog
 from indexer.models import ChainEvent, IndexerState
 from notifications import emails, reminders
 from notifications.models import Notification
@@ -23,12 +24,16 @@ class EventNotificationTests(TestCase):
             "b": user(self.b, "Bea Beneficiary", "bea@x.io"),
         }
         self.chain = FakeChain()
+        patcher = mock.patch("alerts.service.get_client", return_value=self.chain)  # the owner's alert reads the challenge period
+        patcher.start()
+        self.addCleanup(patcher.stop)
         scenario(self.chain, self.o, [self.g1, self.g2, self.g3], self.b)
         raise_claim(self.chain, self.b, 5)
         ingest(self.chain)
         process_pending_events()
         mail.outbox.clear()
         Notification.objects.all().delete()
+        AlertLog.objects.all().delete()  # the owner's alert is part of what the tests below replay
         ChainEvent.objects.filter(event_name="ClaimRaised").update(processed=False)
 
     def run_event(self, name, args, block, sender):

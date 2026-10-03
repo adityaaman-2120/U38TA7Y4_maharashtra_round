@@ -28,6 +28,7 @@ const SERVER: Row[] = [
   { what: "Invitations", form: "The invitee's email, the name you gave them, their role, status and expiry. The emailed link carries a signed token, not personal data.", who: "The server and the invited person's inbox." },
   { what: "Notifications", form: "The text of each alert and email (for example \"claim #2 was raised on asset #0\") and whether it was read. No file contents.", who: "The server, plus your mail provider when an email is sent." },
   { what: "A copy of the chain's events", form: "The same public events as above, plus the address that sent each transaction, so the audit page and alerts are fast.", who: "The server. It adds nothing that is not already public." },
+  { what: "Alert settings and log", form: "Which channels you turned on, whether your email and phone were verified, and a log of each alert sent (type, channel, time, outcome). The log holds no email address, phone number or message text.", who: "The server. Your phone number goes to the SMS provider (Twilio) only when a text is sent." },
   { what: "Short-lived session data", form: "A session cookie your browser keeps (JavaScript cannot read it), one-time sign-in challenges, and rate-limit counters.", who: "The server, for minutes to hours." },
 ];
 

@@ -102,6 +102,35 @@ export const inviteApi = {
   contacts: (role?: Role) => api<Invite[]>(`/contacts${role ? `?role=${role}` : ""}`),
 };
 
+// ---- alerts -------------------------------------------------------------------------------------
+
+export type AlertSettings = {
+  email_enabled: boolean;
+  sms_enabled: boolean;
+  has_email: boolean;
+  has_phone: boolean;
+  email_verified: boolean;
+  phone_verified: boolean;
+  sms_available: boolean;
+  recent: { kind: string; channel: "email" | "sms"; status: "sent" | "failed"; claim_id: number | null; at: string }[];
+};
+
+export const alertsApi = {
+  get: () => api<AlertSettings>("/alerts/settings"),
+  save: (p: { email_enabled: boolean; sms_enabled: boolean }) => api<AlertSettings>("/alerts/settings", { method: "PUT", body: p }),
+  start: (channel: "email" | "phone") => api<void>("/alerts/verify/start", { method: "POST", body: { channel } }),
+  confirm: (channel: "email" | "phone", code: string) => api<AlertSettings>("/alerts/verify/confirm", { method: "POST", body: { channel, code } }),
+};
+
+export type AlivePreview = { claim_id: number; asset_id: number; chain_id: number; owner: string; ends_at: number };
+export type AliveProblem = "invalid" | "used" | "closed" | "expired";
+
+/** The emailed "I'm alive" link. Public: the signed token is the credential. */
+export const aliveApi = {
+  preview: (claim: string, token: string) => api<AlivePreview>(`/alive/preview?${new URLSearchParams({ claim, t: token })}`),
+  consume: (claim: string, token: string) => api<{ ok: true }>("/alive/consume", { method: "POST", body: { claim, t: token } }),
+};
+
 // ---- events & notifications ---------------------------------------------------------------------
 
 export type ApiEvent = {

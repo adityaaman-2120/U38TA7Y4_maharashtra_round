@@ -13,4 +13,5 @@ urlpatterns = [
     path("api/", include("invites.urls")),
     path("api/", include("indexer.urls")),
     path("api/", include("notifications.urls")),
+    path("api/", include("alerts.urls")),
 ]

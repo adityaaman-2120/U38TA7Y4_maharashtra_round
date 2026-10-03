@@ -19,6 +19,8 @@ class User(AbstractBaseUser):
     name = models.CharField(max_length=80, blank=True)
     email = models.EmailField(blank=True)
     phone = models.CharField(max_length=24, blank=True)
+    email_verified_at = models.DateTimeField(null=True, blank=True)  # cleared whenever the email changes
+    phone_verified_at = models.DateTimeField(null=True, blank=True)  # cleared whenever the phone changes
     is_active = models.BooleanField(default=True)
     created_at = models.DateTimeField(auto_now_add=True)
     session_version = models.PositiveIntegerField(default=0)  # bumped on logout to revoke issued JWTs
@@ -33,6 +35,14 @@ class User(AbstractBaseUser):
     @property
     def checksum_address(self) -> str:
         return checksum(self.address)
+
+    @property
+    def email_verified(self) -> bool:
+        return bool(self.email and self.email_verified_at)
+
+    @property
+    def phone_verified(self) -> bool:
+        return bool(self.phone and self.phone_verified_at)
 
     @property
     def profile_complete(self) -> bool:
