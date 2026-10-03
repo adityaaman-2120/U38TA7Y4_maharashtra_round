@@ -63,7 +63,7 @@ export function ToastProvider({ children }: { children: ReactNode }) {
               {t.hash && (
                 <p className="mt-1 text-xs text-slate-400">
                   Tx{" "}
-                  {url ? <a href={url} target="_blank" rel="noreferrer" className="text-indigo-400 underline">{shortHash(t.hash, 6)} on Polygonscan</a> : <span className="font-mono">{shortHash(t.hash, 6)}</span>}
+                  {url ? <a href={url} target="_blank" rel="noreferrer" className="text-indigo-400 underline">{shortHash(t.hash, 6)} on explorer</a> : <span className="font-mono">{shortHash(t.hash, 6)}</span>}
                 </p>
               )}
             </div>

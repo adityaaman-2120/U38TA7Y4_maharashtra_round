@@ -21,6 +21,14 @@ Add the "Localhost" network (chain 31337, RPC `http://127.0.0.1:8545`) to MetaMa
 or let the app's *Switch network* button add it. Deploys write `web/src/lib/contracts.ts` (ABI + addresses per chain).
 Restarting the node resets the chain; clear the site's localStorage (or re-import your recovery file) for a fresh start.
 
+## Sepolia
+```bash
+export DEPLOYER_PRIVATE_KEY=0x...      # funded with Sepolia ETH; never commit
+# optional: export SEPOLIA_RPC_URL=...
+npm --prefix contracts run deploy:sepolia
+```
+Restart the web server afterwards so the app picks up `contracts.ts`, then switch MetaMask to Sepolia.
+
 ## Polygon Amoy
 ```bash
 export AMOY_RPC_URL=...  DEPLOYER_PRIVATE_KEY=...      # never commit these

@@ -1,18 +1,23 @@
 import { createConfig, http } from "wagmi";
-import { hardhat, polygonAmoy } from "wagmi/chains";
+import { hardhat, polygonAmoy, sepolia } from "wagmi/chains";
 import { injected } from "wagmi/connectors";
 
 export const config = createConfig({
-  chains: [polygonAmoy, hardhat],
+  chains: [sepolia, polygonAmoy, hardhat],
   connectors: [injected()],
   transports: {
     [polygonAmoy.id]: http(process.env.NEXT_PUBLIC_AMOY_RPC_URL || undefined),
+    [sepolia.id]: http(process.env.NEXT_PUBLIC_SEPOLIA_RPC_URL || "https://ethereum-sepolia-rpc.publicnode.com"),
     [hardhat.id]: http("http://127.0.0.1:8545"),
   },
   ssr: true,
 });
 
-export const CHAIN_LABELS: Record<number, string> = { [polygonAmoy.id]: "Polygon Amoy", [hardhat.id]: "Localhost" };
+export const CHAIN_LABELS: Record<number, string> = { [sepolia.id]: "Sepolia", [polygonAmoy.id]: "Polygon Amoy", [hardhat.id]: "Localhost" };
 
-export const explorerTxUrl = (chainId: number, hash: string) =>
-  chainId === polygonAmoy.id ? `https://amoy.polygonscan.com/tx/${hash}` : null;
+const EXPLORERS: Record<number, string> = {
+  [sepolia.id]: "https://sepolia.etherscan.io",
+  [polygonAmoy.id]: "https://amoy.polygonscan.com",
+};
+
+export const explorerTxUrl = (chainId: number, hash: string) => (EXPLORERS[chainId] ? `${EXPLORERS[chainId]}/tx/${hash}` : null);
