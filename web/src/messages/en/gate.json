@@ -74,6 +74,9 @@
       "beneficiary": "Inheritance",
       "audit": "Audit",
       "account": "Account"
-    }
+    },
+    "assure1": "Encrypted in your browser",
+    "assure2": "No single point of trust",
+    "assure3": "Every action on a public audit trail"
   }
 }

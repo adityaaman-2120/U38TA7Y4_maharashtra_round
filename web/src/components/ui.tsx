@@ -1,5 +1,6 @@
 "use client";
 import { useTranslations } from "next-intl";
+import { LockIcon } from "./Icons";
 import type { ButtonHTMLAttributes, InputHTMLAttributes, ReactNode, SelectHTMLAttributes } from "react";
 
 export function Card({ title, children, right }: { title: string; children: ReactNode; right?: ReactNode }) {
@@ -65,9 +66,10 @@ export function ListSkeleton({ rows = 3 }: { rows?: number }) {
   );
 }
 
-export function EmptyState({ title, hint, children }: { title: string; hint?: string; children?: ReactNode }) {
+export function EmptyState({ title, hint, children, icon }: { title: string; hint?: string; children?: ReactNode; icon?: ReactNode }) {
   return (
     <div className="rounded-2xl border border-dashed border-line-strong bg-surface/60 p-10 text-center">
+      <span className="mx-auto mb-3 inline-flex h-12 w-12 items-center justify-center rounded-2xl bg-accent-soft text-accent">{icon ?? <LockIcon size={22} />}</span>
       <p className="font-display text-xl text-ink">{title}</p>
       {hint && <p className="mx-auto mt-1 max-w-md text-sm text-faint">{hint}</p>}
       {children && <div className="mt-3">{children}</div>}
@@ -75,12 +77,16 @@ export function EmptyState({ title, hint, children }: { title: string; hint?: st
   );
 }
 
-export function Stat({ label, value, tone = "info" }: { label: string; value: ReactNode; tone?: "good" | "bad" | "warn" | "info" }) {
+export function Stat({ label, value, tone = "info", icon }: { label: string; value: ReactNode; tone?: "good" | "bad" | "warn" | "info"; icon?: ReactNode }) {
   const t = { good: "text-ok", bad: "text-bad", warn: "text-warn", info: "text-ink" };
+  const chip = { good: "bg-ok-soft text-ok", bad: "bg-bad-soft text-bad", warn: "bg-warn-soft text-warn", info: "bg-accent-soft text-accent" };
   return (
-    <div className="rounded-2xl border border-line bg-surface p-4">
-      <p className="text-xs uppercase tracking-wider text-faint">{label}</p>
-      <p className={`mt-1 font-display text-3xl ${t[tone]}`}>{value}</p>
+    <div className="flex items-start justify-between gap-3 rounded-2xl border border-line bg-surface p-4 transition-colors hover:border-line-strong">
+      <div className="min-w-0">
+        <p className="text-xs uppercase tracking-wider text-faint">{label}</p>
+        <p className={`mt-1 font-display text-3xl ${t[tone]}`}>{value}</p>
+      </div>
+      {icon && <span className={`inline-flex h-9 w-9 shrink-0 items-center justify-center rounded-xl ${chip[tone]}`}>{icon}</span>}
     </div>
   );
 }

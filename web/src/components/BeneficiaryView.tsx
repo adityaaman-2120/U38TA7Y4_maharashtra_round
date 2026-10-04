@@ -1,6 +1,7 @@
 "use client";
 import { useRef, useState } from "react";
 import { useTranslations } from "next-intl";
+import { FlagIcon, GiftIcon, UnlockIcon } from "./Icons";
 import { evidenceLabel } from "@/lib/contract";
 import { claimState, loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
 import { combineShares, decryptFile, downloadBytes, eciesDecrypt, fromHex, isLetter, letterTitle, sealEvidence } from "@/lib/crypto";
@@ -40,9 +41,9 @@ export default function BeneficiaryView() {
   return (
     <div className="space-y-4">
       <StatGrid>
-        <Stat label={t("statReserved")} value={list.isLoading ? "…" : rows.length} />
-        <Stat label={t("statOpenClaims")} value={list.isLoading ? "…" : openClaims} tone={openClaims ? "warn" : "info"} />
-        <Stat label={t("statReady")} value={list.isLoading ? "…" : ready + rows.filter((r) => r.asset.kind === "crypto" && r.asset.released && r.asset.balance > 0n).length} tone={ready ? "good" : "info"} />
+        <Stat label={t("statReserved")} value={list.isLoading ? "…" : rows.length} icon={<GiftIcon size={18} />} />
+        <Stat label={t("statOpenClaims")} value={list.isLoading ? "…" : openClaims} tone={openClaims ? "warn" : "info"} icon={<FlagIcon size={18} />} />
+        <Stat label={t("statReady")} value={list.isLoading ? "…" : ready + rows.filter((r) => r.asset.kind === "crypto" && r.asset.released && r.asset.balance > 0n).length} tone={ready ? "good" : "info"} icon={<UnlockIcon size={18} />} />
       </StatGrid>
       <h2 className="text-lg font-semibold text-ink">{t("heading")}</h2>
       <p className="text-xs text-faint">{t("hint")}</p>

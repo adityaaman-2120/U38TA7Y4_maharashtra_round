@@ -124,6 +124,9 @@
     "openMine": "আমার কপি খুলুন",
     "reshare": "নতুন অভিভাবকদের সঙ্গে আবার ভাগ করুন",
     "cancelClaim": "দাবি বাতিল করুন",
-    "labelCancelClaim": "দাবি বাতিল"
+    "labelCancelClaim": "দাবি বাতিল",
+    "stepInvite": "মানুষজনকে আমন্ত্রণ জানান",
+    "stepVault": "আপনার ভল্ট তৈরি করুন",
+    "stepReserve": "প্রথম সম্পদ সংরক্ষণ করুন"
   }
 }

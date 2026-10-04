@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { KeyIcon, ListIcon, ShieldIcon } from "./Icons";
 import { keccak256, toBytes } from "viem";
 import { loadClaimBundle, claimState, readers, useHeirloom, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
 import { eciesDecrypt, eciesEncrypt, fromHex, toHex } from "@/lib/crypto";
@@ -24,9 +25,9 @@ export default function GuardianView() {
   return (
     <div className="space-y-4">
       <StatGrid>
-        <Stat label={t("statPending")} value={list.isLoading ? "…" : pending} tone={pending ? "warn" : "info"} />
-        <Stat label={t("statRelease")} value={list.isLoading ? "…" : toRelease} tone={toRelease ? "warn" : "info"} />
-        <Stat label={t("statSeen")} value={list.isLoading ? "…" : bundles.length} />
+        <Stat label={t("statPending")} value={list.isLoading ? "…" : pending} tone={pending ? "warn" : "info"} icon={<ShieldIcon size={18} />} />
+        <Stat label={t("statRelease")} value={list.isLoading ? "…" : toRelease} tone={toRelease ? "warn" : "info"} icon={<KeyIcon size={18} />} />
+        <Stat label={t("statSeen")} value={list.isLoading ? "…" : bundles.length} icon={<ListIcon size={18} />} />
       </StatGrid>
       <h2 className="text-lg font-semibold text-ink">{t("heading")}</h2>
       {list.isLoading ? (

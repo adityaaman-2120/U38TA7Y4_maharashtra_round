@@ -1,6 +1,7 @@
 "use client";
 import { useState, type FormEvent } from "react";
 import { useTranslations } from "next-intl";
+import { CheckIcon, ClockIcon, MailIcon, UsersIcon } from "./Icons";
 import { useMutation, useQuery, useQueryClient } from "@tanstack/react-query";
 import { inviteApi, type Invite, type InviteStatus, type Role } from "@/lib/api";
 import { fmtTime, shortAddr } from "@/lib/format";
@@ -24,9 +25,9 @@ export default function PeopleView() {
   return (
     <div className="space-y-4">
       <StatGrid>
-        <Stat label={t("statAccepted")} value={list.isLoading ? "…" : count("accepted")} tone="good" />
-        <Stat label={t("statWaiting")} value={list.isLoading ? "…" : count("pending")} tone={count("pending") ? "warn" : "info"} />
-        <Stat label={t("statExpired")} value={list.isLoading ? "…" : count("expired")} tone={count("expired") ? "bad" : "info"} />
+        <Stat label={t("statAccepted")} value={list.isLoading ? "…" : count("accepted")} tone="good" icon={<CheckIcon size={18} />} />
+        <Stat label={t("statWaiting")} value={list.isLoading ? "…" : count("pending")} tone={count("pending") ? "warn" : "info"} icon={<MailIcon size={18} />} />
+        <Stat label={t("statExpired")} value={list.isLoading ? "…" : count("expired")} tone={count("expired") ? "bad" : "info"} icon={<ClockIcon size={18} />} />
       </StatGrid>
 
       <InviteForm onDone={(n) => { setNotice(n); refresh(); }} />
@@ -44,7 +45,7 @@ export default function PeopleView() {
       <Card title={t("circleTitle")}>
         <p className="text-sm text-muted">{t("circleIntro")}</p>
         {list.isLoading ? <ListSkeleton rows={2} /> : list.isError ? <p className="text-sm text-bad">{(list.error as Error).message}</p> : visible.length === 0 ? (
-          <EmptyState title={t("emptyTitle")} hint={t("emptyHint")} />
+          <EmptyState title={t("emptyTitle")} hint={t("emptyHint")} icon={<UsersIcon size={22} />} />
         ) : (
           <ul className="divide-y divide-line" data-testid="invite-list">
             {visible.map((i) => <InviteRow key={i.id} invite={i} verified={i.invitee ? ver.isVerified(i.invitee.address) : false} showVerified={ver.enabled} onChange={refresh} onNotice={setNotice} />)}

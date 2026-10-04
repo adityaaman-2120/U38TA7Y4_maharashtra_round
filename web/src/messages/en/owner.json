@@ -124,6 +124,9 @@
     "openMine": "Open my copy",
     "reshare": "Re-share to new guardians",
     "cancelClaim": "Cancel claim",
-    "labelCancelClaim": "Cancel claim"
+    "labelCancelClaim": "Cancel claim",
+    "stepInvite": "Invite people",
+    "stepVault": "Create your vault",
+    "stepReserve": "Reserve your first asset"
   }
 }

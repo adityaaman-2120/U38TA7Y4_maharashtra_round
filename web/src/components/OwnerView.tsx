@@ -1,6 +1,7 @@
 "use client";
 import { useState } from "react";
 import { useTranslations } from "next-intl";
+import { CheckIcon, ClockIcon, DocIcon, FlagIcon, UsersIcon, LockIcon } from "./Icons";
 import { isAddress, type Address } from "viem";
 import { evidenceLabel } from "@/lib/contract";
 import { loadClaimBundle, readers, useHeirloom, useNow, useRead, useTx, type ClaimBundle } from "@/lib/hooks";
@@ -107,6 +108,14 @@ function CreateVault({ onGoPeople }: { onGoPeople?: () => void }) {
 
   return (
     <Card title={t("createTitle")}>
+      <ol className="grid gap-2 sm:grid-cols-3" aria-label={t("createTitle")}>
+        {([["stepInvite", people.length >= 3, UsersIcon], ["stepVault", false, LockIcon], ["stepReserve", false, DocIcon]] as const).map(([k, done, Icon], i) => (
+          <li key={k} className={`flex items-center gap-3 rounded-xl border px-3.5 py-3 text-sm ${done ? "border-ok/30 bg-ok-soft text-ok" : i === (people.length >= 3 ? 1 : 0) ? "border-accent/40 bg-accent-soft text-accent" : "border-line bg-paper text-muted"}`}>
+            <span className="inline-flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-surface">{done ? <CheckIcon size={16} /> : <Icon size={16} />}</span>
+            <span className="font-medium">{t(k)}</span>
+          </li>
+        ))}
+      </ol>
       <p className="text-sm text-muted">{t("createIntro")}</p>
       {!contacts.isLoading && people.length < 3 && (
         <NoPeople message={t("fewGuardians", { count: people.length })} onGoPeople={onGoPeople} />
@@ -498,9 +507,9 @@ function OwnerStats({ vault }: { vault: import("@/lib/contract").Vault }) {
   const due = vault.lastHeartbeat + vault.heartbeatInterval;
   return (
     <StatGrid>
-      <Stat label={t("statAssets")} value={list.isLoading ? "…" : list.data?.length ?? 0} />
-      <Stat label={t("statOpenClaims")} value={list.isLoading ? "…" : open} tone={open ? "bad" : "good"} />
-      <Stat label={t("statNextCheckIn")} value={now < due ? fmtDuration(due - now) : t("overdue")} tone={now < due ? "info" : "warn"} />
+      <Stat label={t("statAssets")} value={list.isLoading ? "…" : list.data?.length ?? 0} icon={<DocIcon size={18} />} />
+      <Stat label={t("statOpenClaims")} value={list.isLoading ? "…" : open} tone={open ? "bad" : "good"} icon={<FlagIcon size={18} />} />
+      <Stat label={t("statNextCheckIn")} value={now < due ? fmtDuration(due - now) : t("overdue")} tone={now < due ? "info" : "warn"} icon={<ClockIcon size={18} />} />
     </StatGrid>
   );
 }

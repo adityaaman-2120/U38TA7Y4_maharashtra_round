@@ -11,6 +11,7 @@ import { shortAddr } from "@/lib/format";
 import { Btn, ListSkeleton } from "./ui";
 import { Wordmark } from "./Logo";
 import { LanguageSwitcher } from "./LanguageSwitcher";
+import { GiftIcon, HomeIcon, ListIcon, LockIcon, ShieldIcon, UserIcon, UsersIcon } from "./Icons";
 import { KeyGate, useKey } from "./KeyProvider";
 import { IdentityGate } from "./IdentityCard";
 import { DeploymentGuard } from "./DeploymentGuard";
@@ -106,18 +107,29 @@ export function WalletGate({ children }: { children: ReactNode }) {
   if (!isConnected) {
     const injected = connectors[0];
     return (
-      <Welcome>
-        <h1 className="font-display text-5xl leading-[1.05] text-ink">{t("connectHeading")}</h1>
-        <p className="mt-4 text-ink-2">{t("connectBody")}</p>
-        <div className="mt-6 flex flex-wrap items-center gap-3">
-          <Btn disabled={!injected || isPending} onClick={() => injected && connect({ connector: injected })} data-testid="connect" className="px-5 py-2.5">
-            {isPending ? t("connecting") : t("connectMetaMask")}
-          </Btn>
-          <Link href="/" className="text-sm text-muted underline-offset-4 hover:underline">{t("backToOverview")}</Link>
+      <div className="mx-auto grid max-w-5xl items-center gap-10 pt-6 lg:grid-cols-[1.1fr_1fr]">
+        <div>
+          <p className="mb-2 text-xs font-medium uppercase tracking-[0.18em] text-brass">Heirloom</p>
+          <h1 className="font-display text-5xl leading-[1.05] text-ink">{t("connectHeading")}</h1>
+          <p className="mt-4 text-ink-2">{t("connectBody")}</p>
+          <div className="mt-6 flex flex-wrap items-center gap-3">
+            <Btn disabled={!injected || isPending} onClick={() => injected && connect({ connector: injected })} data-testid="connect" className="px-5 py-2.5">
+              {isPending ? t("connecting") : t("connectMetaMask")}
+            </Btn>
+            <Link href="/" className="text-sm text-muted underline-offset-4 hover:underline">{t("backToOverview")}</Link>
+          </div>
+          {!injected && <p className="mt-3 text-sm text-warn">{t("noWallet")}</p>}
+          {error && <p className="mt-3 text-sm text-bad">{error.message}</p>}
         </div>
-        {!injected && <p className="mt-3 text-sm text-warn">{t("noWallet")}</p>}
-        {error && <p className="mt-3 text-sm text-bad">{error.message}</p>}
-      </Welcome>
+        <ul className="space-y-3">
+          {([[LockIcon, "assure1"], [UsersIcon, "assure2"], [ListIcon, "assure3"]] as const).map(([Icon, k]) => (
+            <li key={k} className="flex items-center gap-4 rounded-2xl border border-line bg-surface p-4 shadow-[0_1px_0_rgba(21,24,29,0.03)]">
+              <span className="inline-flex h-11 w-11 shrink-0 items-center justify-center rounded-xl bg-accent-soft text-accent"><Icon size={22} /></span>
+              <span className="font-medium text-ink">{t(k)}</span>
+            </li>
+          ))}
+        </ul>
+      </div>
     );
   }
 
@@ -166,6 +178,10 @@ export function WalletShell({ children }: { children: ReactNode }) {
   );
 }
 
+const NAV_ICON: Record<View, ReactNode> = {
+  owner: <HomeIcon size={18} />, people: <UsersIcon size={18} />, guardian: <ShieldIcon size={18} />, beneficiary: <GiftIcon size={18} />, audit: <ListIcon size={18} />, account: <UserIcon size={18} />,
+};
+
 function Main() {
   const t = useTranslations("Shell");
   const roles = useRoles();
@@ -188,12 +204,12 @@ function Main() {
       <nav className="flex gap-1.5 overflow-x-auto pb-1 md:flex-col md:overflow-visible md:pb-0" aria-label={t("sections")}>
         {available.map((id) => (
           <button key={id} onClick={() => setPicked(id)} data-testid={`nav-${id}`}
-            className={`shrink-0 rounded-lg px-3.5 py-2 text-left text-sm font-medium transition-colors ${view === id ? "bg-ink text-paper" : "text-ink-2 hover:bg-sunken"}`}>
-            {t(`nav.${id}`)}
+            className={`flex shrink-0 items-center gap-2.5 rounded-lg px-3.5 py-2 text-left text-sm font-medium transition-colors ${view === id ? "bg-ink text-paper shadow-sm" : "text-ink-2 hover:bg-sunken"}`}>
+            {NAV_ICON[id]}{t(`nav.${id}`)}
           </button>
         ))}
         <div className="hidden border-t border-line md:mt-3 md:block" />
-        <button onClick={key.lock} data-testid="lock" className="shrink-0 rounded-lg px-3.5 py-2 text-left text-sm text-muted hover:bg-sunken md:mt-1">
+        <button onClick={key.lock} data-testid="lock" className="shrink-0 rounded-lg px-3.5 py-2 text-left text-sm text-muted hover:bg-sunken md:mt-1 flex items-center gap-2.5"><LockIcon size={18} />
           {t("lockKey")}
         </button>
       </nav>
