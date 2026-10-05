@@ -11,6 +11,8 @@ export const NATIVE_SYMBOLS: Record<number, string> = { 80002: "POL", 11155111: 
 export const nativeInfo = (chainId: number | undefined): TokenInfo => ({ address: NATIVE, symbol: (chainId && NATIVE_SYMBOLS[chainId]) || "ETH", decimals: 18 });
 
 export function getTestToken(chainId: number | undefined): TokenInfo | null {
+  const envToken = process.env.NEXT_PUBLIC_TEST_TOKEN_ADDRESS;
+  if (envToken && chainId && chainId === Number(process.env.NEXT_PUBLIC_CHAIN_ID || 0)) return { address: envToken as Address, symbol: process.env.NEXT_PUBLIC_TEST_TOKEN_SYMBOL || "HTT", decimals: 18 };
   const t = chainId ? (testTokens as unknown as Record<number, { address: string; symbol: string; decimals: number }>)[chainId] : undefined;
   return t ? { address: t.address as Address, symbol: t.symbol, decimals: t.decimals } : null;
 }

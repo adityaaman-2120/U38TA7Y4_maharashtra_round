@@ -1,0 +1,54 @@
+# Render Blueprint: the Django API on the free plan. (The web app is on Vercel; the database is Neon; the scheduler is cron-job.org.)
+# Values are NOT in this file: secrets and URLs are entered once in the Render dashboard (see DEPLOY.md). Keys marked `sync: false` are
+# created empty and you fill them in.
+services:
+  - type: web
+    name: heirloom-api
+    runtime: python
+    plan: free
+    region: ohio # the same region as a Neon project in us-east-2 (Ohio), so database calls stay in one data centre
+    rootDir: backend
+    # Migrations and the cache table are part of the build, so a deploy that fails to migrate never goes live.
+    buildCommand: pip install -r requirements.txt && python manage.py collectstatic --noinput && python manage.py migrate --noinput && python manage.py createcachetable
+    startCommand: gunicorn config.wsgi:application --bind 0.0.0.0:$PORT --workers 1 --threads 8 --timeout 60 --access-logfile -
+    healthCheckPath: /health
+    autoDeploy: true
+    envVars:
+      # --- fixed settings (safe to keep in git) ---
+      - key: PYTHON_VERSION
+        value: 3.12.8
+      - key: DJANGO_DEBUG
+        value: "0"
+      - key: SMS_ENABLED
+        value: "false"
+      - key: ACTIVE_CHAIN_IDS
+        value: "80002"
+      - key: SIWE_CHAIN_IDS
+        value: "80002"
+      - key: CONFIRMATIONS_80002
+        value: "30"
+      - key: INDEX_CHUNK_BLOCKS_80002
+        value: "1000"
+      - key: NUM_PROXIES # two hops in front of Django: Vercel's rewrite, then Render's load balancer
+        value: "2"
+      # --- secrets and URLs: fill these in the dashboard ---
+      - key: DJANGO_SECRET_KEY
+        sync: false
+      - key: DATABASE_URL # the Neon connection string (pooled)
+        sync: false
+      - key: TICK_SECRET # the same value you put in cron-job.org's X-Tick-Secret header
+        sync: false
+      - key: FRONTEND_URL # https://<your-project>.vercel.app
+        sync: false
+      - key: ALLOWED_ORIGINS # the same Vercel origin; the only site allowed to call the API
+        sync: false
+      - key: SIWE_ALLOWED_DOMAINS # the Vercel host without https://, e.g. your-project.vercel.app
+        sync: false
+      - key: RPC_URL_80002 # Alchemy (or any) Polygon Amoy RPC URL
+        sync: false
+      - key: LOGS_RPC_URL_80002 # an RPC without a tiny eth_getLogs limit, e.g. https://polygon-amoy-bor-rpc.publicnode.com
+        sync: false
+      - key: RESEND_API_KEY
+        sync: false
+      - key: DEFAULT_FROM_EMAIL # "Heirloom <onboarding@resend.dev>" until you verify a domain in Resend
+        sync: false

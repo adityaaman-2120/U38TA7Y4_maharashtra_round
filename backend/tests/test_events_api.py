@@ -19,7 +19,7 @@ class EventsApiTests(ApiTest):
         super().setUp()
         self.tmp = tempfile.TemporaryDirectory()
         (Path(self.tmp.name) / "deployments.json").write_text(json.dumps({str(CFG.chain_id): {"address": CFG.address, "startBlock": 1}}))
-        self.settings_ctx = override_settings(CHAIN_DIR=Path(self.tmp.name), CELERY_TASK_ALWAYS_EAGER=True)
+        self.settings_ctx = override_settings(CHAIN_DIR=Path(self.tmp.name))
         self.settings_ctx.enable()
         self.o, self.g1, self.g2, self.g3, self.b = (addr() for _ in range(5))
         self.chain = FakeChain()

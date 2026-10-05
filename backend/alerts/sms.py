@@ -12,7 +12,8 @@ class TwilioBackend:
     API = "https://api.twilio.com/2010-04-01/Accounts/{sid}/Messages.json"
 
     def available(self) -> bool:
-        return bool(settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_FROM_NUMBER)
+        # SMS is opt-in: SMS_ENABLED must be true as well as the Twilio credentials being present.
+        return bool(settings.SMS_ENABLED and settings.TWILIO_ACCOUNT_SID and settings.TWILIO_AUTH_TOKEN and settings.TWILIO_FROM_NUMBER)
 
     def send(self, to: str, body: str) -> str:
         """Returns the provider's message id."""

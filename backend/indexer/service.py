@@ -9,6 +9,7 @@ Properties:
 """
 import logging
 import re
+import time
 from dataclasses import dataclass
 
 from django.conf import settings
@@ -87,7 +88,8 @@ def _reconcile(cfg: ChainConfig, state: IndexerState, client: ChainClient, head:
     return True
 
 
-def index_chain(cfg: ChainConfig, client: ChainClient) -> IndexResult:
+def index_chain(cfg: ChainConfig, client: ChainClient, deadline: float | None = None) -> IndexResult:
+    """Indexes new blocks. `deadline` (a time.monotonic() value) stops it between chunks, so a run always ends in time."""
     result = IndexResult()
     state, _ = IndexerState.objects.get_or_create(
         chain_id=cfg.chain_id, address=cfg.address, defaults={"last_block": cfg.start_block - 1}
@@ -100,11 +102,14 @@ def index_chain(cfg: ChainConfig, client: ChainClient) -> IndexResult:
     result.reorged = _reconcile(cfg, state, client, head)
     safe = head - cfg.confirmations
 
+    chunk = cfg.chunk_blocks or settings.INDEX_CHUNK_BLOCKS
     for _ in range(settings.INDEX_MAX_CHUNKS_PER_RUN):
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         start = state.last_block + 1
         if start > safe:
             break
-        end = min(start + settings.INDEX_CHUNK_BLOCKS - 1, safe)
+        end = min(start + chunk - 1, safe)
         raw = client.events(start, end)
         end_hash = client.block(end)["hash"]
 

@@ -22,7 +22,31 @@ function messageFrom(body: unknown, status: number): string {
   return status === 429 ? rt("Errors.tooManyRequests") : rt("Errors.requestFailed", { status });
 }
 
+// ---- "the server is waking up" -----------------------------------------------------------------
+// Free hosting sleeps when idle, so a request can take a minute. Any API request still pending after this long raises a flag that the
+// <ServerWaking /> banner shows, and clears it when the request settles.
+const WAKE_AFTER_MS = 5000;
+let slowRequests = 0;
+const wakeListeners = new Set<() => void>();
+export const getWaking = () => slowRequests > 0;
+export const subscribeWaking = (l: () => void) => {
+  wakeListeners.add(l);
+  return () => void wakeListeners.delete(l);
+};
+const notifyWaking = () => wakeListeners.forEach((l) => l());
+
 export async function api<T>(path: string, init: { method?: string; body?: Json } = {}): Promise<T> {
+  let slow = false;
+  const timer = setTimeout(() => { slow = true; slowRequests++; notifyWaking(); }, WAKE_AFTER_MS);
+  try {
+    return await request<T>(path, init);
+  } finally {
+    clearTimeout(timer);
+    if (slow) { slowRequests--; notifyWaking(); }
+  }
+}
+
+async function request<T>(path: string, init: { method?: string; body?: Json } = {}): Promise<T> {
   let res: Response;
   try {
     res = await fetch(`/backend${path}`, {

@@ -13,8 +13,22 @@ export type Deployment = {
   nullifierSeed?: string;
 };
 
+// The deployment can be pinned by environment variables (set in Vercel), so a redeploy of the contract needs no code change.
+// NEXT_PUBLIC_* values are inlined at build time, so each is referenced literally.
+const ENV_CHAIN_ID = Number(process.env.NEXT_PUBLIC_CHAIN_ID || 0);
+const ENV_ADDRESS = process.env.NEXT_PUBLIC_CONTRACT_ADDRESS;
+
 export function getDeployment(chainId: number | undefined): Deployment | null {
   if (chainId === undefined) return null;
+  if (ENV_CHAIN_ID && chainId === ENV_CHAIN_ID && ENV_ADDRESS) {
+    return {
+      address: ENV_ADDRESS as Address,
+      startBlock: Number(process.env.NEXT_PUBLIC_CONTRACT_START_BLOCK || 0),
+      anonAadhaar: (process.env.NEXT_PUBLIC_ANON_AADHAAR_ADDRESS || undefined) as Address | undefined,
+      anonAadhaarMode: process.env.NEXT_PUBLIC_ANON_AADHAAR_MODE || undefined,
+      nullifierSeed: process.env.NEXT_PUBLIC_NULLIFIER_SEED || undefined,
+    };
+  }
   const d = (heirloomDeployments as unknown as Record<number, { address: string; startBlock: number; anonAadhaar?: string; anonAadhaarMode?: string; nullifierSeed?: string }>)[chainId];
   return d
     ? { address: d.address as Address, startBlock: d.startBlock, anonAadhaar: d.anonAadhaar as Address | undefined, anonAadhaarMode: d.anonAadhaarMode, nullifierSeed: d.nullifierSeed }

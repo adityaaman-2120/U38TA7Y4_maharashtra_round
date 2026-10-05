@@ -37,5 +37,5 @@ try {
 fetch(`${backend.replace(/\/$/, "")}/api/health`, { signal: AbortSignal.timeout(2500) })
   .then((r) => { if (!r.ok) throw new Error(String(r.status)); })
   .catch(() => {
-    console.warn(`\nNote: the backend is not answering at ${backend}. Sign-in, invitations and alerts need it: run  npm run backend:up  (Docker) and check BACKEND_URL in web/.env.local.\n`);
+    console.warn(`\nNote: the backend is not answering at ${backend}. Sign-in, invitations and alerts need it: run  npm run backend:dev and check BACKEND_URL in web/.env.local.\n`);
   });

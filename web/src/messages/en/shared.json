@@ -66,5 +66,9 @@
   },
   "Chains": {
     "localhost": "Localhost"
+  },
+  "Waking": {
+    "title": "Waking up the server…",
+    "body": "Free hosting puts it to sleep when idle, so the first request can take up to a minute. Your request will still go through."
   }
 }

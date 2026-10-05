@@ -60,6 +60,8 @@ class Web3Client:
 
         self.cfg = cfg
         self.w3 = Web3(Web3.HTTPProvider(cfg.rpc_url, request_kwargs={"timeout": 20}))
+        # eth_getLogs can go to a different endpoint when the main one limits its block range.
+        self.logs_w3 = Web3(Web3.HTTPProvider(cfg.logs_rpc_url, request_kwargs={"timeout": 20})) if cfg.logs_rpc_url else self.w3
         self.address = to_checksum_address(cfg.address)
         abi = load_abi()
         self.contract = self.w3.eth.contract(address=self.address, abi=abi)
@@ -76,7 +78,7 @@ class Web3Client:
     def events(self, from_block: int, to_block: int) -> list[RawEvent]:
         from web3._utils.events import get_event_data
 
-        logs = self.w3.eth.get_logs({"address": self.address, "fromBlock": from_block, "toBlock": to_block})
+        logs = self.logs_w3.eth.get_logs({"address": self.address, "fromBlock": from_block, "toBlock": to_block})
         out = []
         for log in logs:
             topic0 = _hex(log["topics"][0]) if log["topics"] else ""

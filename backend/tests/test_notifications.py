@@ -12,7 +12,6 @@ from notifications.notify import process_pending_events
 from .chainfake import EMPTY_CHAIN_DIR, T0, FakeChain, addr, ingest, raise_claim, scenario, user
 
 
-@override_settings(CELERY_TASK_ALWAYS_EAGER=True)
 class EventNotificationTests(TestCase):
     def setUp(self):
         self.o, self.g1, self.g2, self.g3, self.b = (addr() for _ in range(5))
@@ -170,7 +169,7 @@ class EventNotificationTests(TestCase):
         self.assertEqual(Notification.objects.count(), 0)
 
 
-@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CHAIN_DIR=EMPTY_CHAIN_DIR)
+@override_settings(CHAIN_DIR=EMPTY_CHAIN_DIR)
 class ReminderTests(TestCase):
     INTERVAL = 1000
 

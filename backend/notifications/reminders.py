@@ -100,10 +100,10 @@ def deadline_reminders(state: IndexerState, client: ChainClient) -> list[Notific
 
 
 def run(client_for) -> int:
-    """`client_for(state) -> ChainClient`. Returns how many reminders were created; emails are queued for each."""
+    """`client_for(state) -> ChainClient`. Returns how many reminders were created; each is emailed straight away."""
     from indexer.chains import current_deployments
 
-    from .tasks import send_notification_email
+    from . import delivery
 
     live = set(current_deployments())  # ignore contracts that were since redeployed (local dev chains)
     total = 0
@@ -112,6 +112,13 @@ def run(client_for) -> int:
             continue
         made = heartbeat_reminders(state) + deadline_reminders(state, client_for(state))
         for n in made:
-            send_notification_email.delay(n.pk)
+            delivery.deliver(n)
         total += len(made)
     return total
+
+
+def run_all() -> int:
+    """The scheduler's entry point: reminders for every live deployment, reading policies from the chain."""
+    from indexer.clients import get_client
+
+    return run(lambda state: get_client(state.chain_id, state.address))

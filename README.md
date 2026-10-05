@@ -3,24 +3,105 @@
 Files are encrypted in the browser (AES-256-GCM). The per-asset key is split with Shamir; each share is ECIES-encrypted to a
 guardian's on-chain registered key. Ciphertext lives on IPFS (Pinata); the chain holds only hashes, public keys and encrypted shares.
 ```
-contracts/  Hardhat + Solidity 0.8.24 (Heirloom.sol v2) — tests, deploy scripts
+contracts/  Hardhat + Solidity 0.8.24 (Heirloom.sol v2) — tests, deploy + verify scripts
 web/        Next.js App Router + wagmi/viem + MetaMask
-backend/    Django 5 + DRF + Postgres + Redis + Celery (Docker Compose): sign-in, profiles, key blobs, invitations,
-            chain indexer, notifications
+backend/    Django 5 + DRF + Postgres: sign-in, profiles, key blobs, invitations, chain indexer, notifications, claim alerts
+render.yaml Render blueprint for the API;   DEPLOY.md  click-by-click free deployment
 ```
+
+## Live
+| | |
+|---|---|
+| Web app | _add the Vercel address after deploying: `https://<project>.vercel.app`_ |
+| API health | _add the Render address: `https://<service>.onrender.com/health`_ |
+| Contract (Polygon Amoy) | _add after `npm --prefix contracts run deploy:amoy`: `https://amoy.polygonscan.com/address/<address>`_ |
+
+It runs entirely on free plans: **Vercel** (web), **Render** (Django), **Neon** (Postgres), **cron-job.org** (scheduler), Polygon Amoy testnet via Alchemy,
+Pinata (files) and Resend (email). Follow [DEPLOY.md](DEPLOY.md).
+
+## Architecture
+```mermaid
+flowchart LR
+  subgraph Browser
+    UI["Next.js app<br/>(encrypts, splits keys, signs)"]
+    W["MetaMask"]
+  end
+  subgraph Vercel
+    NX["Next.js server<br/>/backend/* rewrite · /api/storage · /api/rpc"]
+  end
+  subgraph Render["Render (free web service)"]
+    API["Django API<br/>gunicorn + WhiteNoise"]
+  end
+  DB[("Neon<br/>Postgres")]
+  CRON["cron-job.org<br/>every minute"]
+  CHAIN["Polygon Amoy<br/>Heirloom.sol"]
+  PIN["Pinata / IPFS<br/>(ciphertext only)"]
+  MAIL["Resend<br/>(email)"]
+  RPC["Alchemy RPC"]
+
+  UI -->|"same-origin /backend/*"| NX
+  NX -->|"proxied, cookies stay first-party"| API
+  API --> DB
+  CRON -->|"POST /internal/tick<br/>X-Tick-Secret"| API
+  API -->|"index events, read policy"| RPC
+  RPC --- CHAIN
+  W -->|"signed transactions"| CHAIN
+  UI -->|"reads via /api/rpc"| NX
+  NX -->|"key kept server-side"| RPC
+  NX -->|"PINATA_JWT, server-only"| PIN
+  API --> MAIL
+```
+The browser never holds a provider key or the Pinata JWT. The API has no background workers: the scheduler's tick (`POST /internal/tick`) does the indexing,
+notifications, reminders and claim alerts in plain function calls, one bounded batch per minute.
+
+## Threat model
+| Who / what | Can | Cannot |
+|---|---|---|
+| **The Heirloom server (Render + Neon)** | See wallet addresses, names, emails, phones, who invited whom, the password-sealed key blobs, alert logs | Read any file, evidence or key: it never receives a plaintext key, and the sealed blob opens only with a password that never leaves the browser |
+| **Vercel** | Serve the JavaScript, relay ciphertext to Pinata, relay read-only RPC calls | Read ciphertext contents; send transactions for anyone |
+| **A passive attacker on the chain or IPFS** | See addresses, policies, salted fingerprints, encrypted shares, crypto amounts, timing and sizes | Decrypt anything |
+| **One guardian** | Open their own share, review evidence, approve / reject / flag | Open a file alone; release early |
+| **A threshold of colluding guardians + a beneficiary** | Release a file early | Do it unseen: the claim, approvals and challenge period are public events, and any check-in by the owner voids the claim |
+| **Someone who steals the sealed key blob** | Guess passwords offline | Be fast: PBKDF2-SHA256 at 600,000 rounds; a long unique password is what protects it |
+| **A compromised web host or CDN** | Serve altered JavaScript, which could capture a password or key | (This is the main residual risk; reproducible builds are future work.) |
+| **A stranger who learns the tick URL** | Nothing | Run it: it needs the `X-Tick-Secret` header (compared in constant time) |
+| **A stranger who learns an "I'm alive" link** | See the claim number and the owner's address | Check in for the owner: only a transaction signed by the owner's wallet counts |
+
+Not defended: metadata (which addresses are guardians and beneficiaries, when, how large), a lost password with no recovery file, UIDAI deanonymizing an Aadhaar holder,
+and bugs in unaudited contracts. See `/security` in the app for the user-facing version.
+
+## Free-tier limitations
+- **Cold starts.** A free Render service sleeps after 15 minutes without traffic and takes up to a minute to wake. The scheduler's call every minute normally keeps it
+  awake; if it stops, the first visitor waits, and the page says "Waking up the server". Render's free hours (750 a month) cover one always-awake service.
+- **Testnet only.** The contract runs on Polygon Amoy: no real value, and the chain can be reset or pruned by its operators. It is an unaudited prototype.
+- **Anon Aadhaar is pre-production.** The deployment trusts the library's published **test** public key (`ANON_AADHAAR_MODE=test`), so only test QR codes verify; real
+  Aadhaar QR codes are rejected. Switching to `real` is a redeploy, and the package is a pre-1.0-style SDK that has not had a production audit. Proving also downloads a
+  ~600 MB circuit key in the browser.
+- **Email.** Resend's shared sender `onboarding@resend.dev` only delivers to the account owner's own address, so invitations to other people need a verified domain.
+  SMS (Twilio) is off by default (`SMS_ENABLED=false`).
+- **RPC limits.** Alchemy's free plan allows `eth_getLogs` over only 10 blocks, so log queries go to a second public endpoint (`LOGS_RPC_URL_80002`) in small chunks.
+  Public RPCs rate-limit; heavy use needs a paid plan.
+- **Database.** Neon's free database sleeps when idle (about a second to wake) and has a storage cap. Rate-limit counters and sign-in nonces live in it too.
+- **One instance.** The API runs one gunicorn worker with threads; there is no horizontal scaling, and a deploy briefly interrupts requests.
+- **Files.** Pinata's free plan has storage and bandwidth caps; downloads through the shared public gateway can be slow (use a dedicated gateway).
 
 ## Setup
 ```bash
 npm run install:all
+npm run backend:setup                  # creates backend/.venv and installs the Python requirements
 cp web/.env.example web/.env.local     # set PINATA_JWT (server-side only) and BACKEND_URL
-cp backend/.env.example backend/.env   # set DJANGO_SECRET_KEY and POSTGRES_PASSWORD
+cp backend/.env.example backend/.env   # set DJANGO_SECRET_KEY (and DATABASE_URL for Neon; SQLite is used when it is empty)
+cp contracts/.env.example contracts/.env   # only needed to deploy to a public network
 ```
+No Docker, Redis or Celery. The backend needs Python 3.12+.
 
 ## Local development
 ```bash
-npm run backend:up     # Postgres, Redis, API, Celery worker + beat in Docker (http://127.0.0.1:8000, BACKEND_PORT to change)
+npm run backend:dev    # migrates, then serves the API on http://127.0.0.1:8000 (BACKEND_PORT to change)
 npm run dev            # hardhat node :8545 → compile + deploy → Next.js :3000
+npm run backend:tick:watch   # a local stand-in for cron-job.org: calls /internal/tick every 15 s (needs TICK_SECRET in backend/.env)
 ```
+Three terminals. Without the tick, the app works but nothing happens in the background: no indexing (so no Audit page rows from the API, no notifications), no reminders.
 | Command | What it does |
 |---|---|
 | `npm run dev` | Starts everything once. First checks that ports 3000 and 8545 are free and, if not, stops with the PID and the exact fix instead of half-starting. Deploys the **real** Anon Aadhaar verifier in test mode (identity proofs need the Anon Aadhaar SDK and a test QR). |
@@ -28,9 +109,9 @@ npm run dev            # hardhat node :8545 → compile + deploy → Next.js :30
 | `npm run dev:mock` / `dev:mock:clean` | Same, but with the local **test double** for identity (`ANON_AADHAAR_VERIFIER=mock`, `NEXT_PUBLIC_ZK_PROVER=mock`): enter a made-up person id instead of an Aadhaar QR. Handy for trying the whole app without the 600 MB circuit key. |
 | `npm run ports:free` | Just the cleanup, without starting anything. |
 
-The scripts set `HARDHAT_HOST=0.0.0.0` so the indexer in Docker can reach the node on your machine. The node's accounts and keys are public, so only run it on a
-network you trust (edit the `dev` scripts to drop it if you do not use the Docker backend). The browser only talks to Next.js; `/backend/*` is proxied to the API
-(`BACKEND_URL` in `web/.env.local`). Deploying writes the ABI and address to `web/src/lib/contracts.ts` and `backend/chain/`.
+The Hardhat node listens on 127.0.0.1 only (its accounts and keys are public, so never expose it). The browser only talks to Next.js; `/backend/*` is proxied to the API
+(`BACKEND_URL` in `web/.env.local`). Deploying writes the ABI and address to `web/src/lib/contracts.ts` and `backend/chain/` (a local chain goes in the git-ignored
+`deployments.local.json`; public networks go in the committed `deployments.json`).
 
 **If the app keeps "loading" or says Heirloom isn't on Localhost:** the page and the chain disagree. A restarted local chain starts empty and is redeployed, so an
 open tab holds the old address. The app now says so instead of spinning. Make sure only one `npm run dev` is running (`npm run dev:clean` guarantees that), wait for
@@ -38,20 +119,14 @@ open tab holds the old address. The app now says so instead of spinning. Make su
 also need to re-register your encryption key (the chain forgot it) and sign in again if the backend was flushed.
 If a wallet shows a red network-fee warning on Localhost, the account has no test ETH: list its address in `contracts/fund.local.json` and restart.
 
-## Sepolia
+## Polygon Amoy (and Sepolia)
+Put the secrets in `contracts/.env` (git-ignored; template in `contracts/.env.example`): `AMOY_RPC_URL`, `POLYGONSCAN_API_KEY`, `DEPLOYER_PRIVATE_KEY` (a throwaway account funded from the Amoy faucet).
 ```bash
-export DEPLOYER_PRIVATE_KEY=0x...      # funded with Sepolia ETH; never commit
-# optional: export SEPOLIA_RPC_URL=...
-npm --prefix contracts run deploy:sepolia
+npm --prefix contracts run deploy:amoy      # deploys, writes addresses/ABI/deploy block to contracts/deployments, web/ and backend/chain
+npm --prefix contracts run verify:amoy      # publishes the source on Polygonscan
 ```
-Restart the web server afterwards so the app picks up `contracts.ts`, then switch MetaMask to Sepolia.
-
-## Polygon Amoy
-```bash
-export AMOY_RPC_URL=...  DEPLOYER_PRIVATE_KEY=...      # never commit these
-npm --prefix contracts run deploy:amoy
-```
-Set `NEXT_PUBLIC_IPFS_GATEWAY` to a dedicated Pinata gateway for reliable downloads.
+The deploy prints the `NEXT_PUBLIC_CHAIN_ID`, `NEXT_PUBLIC_CONTRACT_ADDRESS` and `NEXT_PUBLIC_CONTRACT_START_BLOCK` values to set in Vercel (the web app can also be
+pinned to a deployment purely by these environment variables). `deploy:sepolia` / `verify:sepolia` work the same way. Set `NEXT_PUBLIC_IPFS_GATEWAY` to a dedicated Pinata gateway for reliable downloads.
 
 ### Test ERC-20 on Amoy (for trying crypto assets)
 `TestToken` (HTT) is a worthless ERC-20 with a public `faucet()` (1,000 HTT per wallet per hour). It is for test networks only; the script refuses anything else.
@@ -79,7 +154,7 @@ Until someone chooses, the browser's `Accept-Language` decides (English if it is
 ## Checks
 ```bash
 npm test                          # contract tests
-npm run backend:test              # API, indexer and notification tests, run inside the compose stack (Postgres + Redis)
+npm run backend:test              # API, indexer, notification, alert and scheduler tests (always on a throwaway SQLite database)
 npm --prefix web run lint
 npm --prefix web run typecheck
 ```
@@ -104,16 +179,22 @@ Never files, plaintext keys, DEKs or shares. Nothing personal goes on-chain.
 | `GET /api/alive/preview`, `POST /api/alive/consume` | The emailed "I'm alive" link (public; the signed token is the credential and grants no power by itself). `consume` checks on-chain that the claim is void, then retires the link. |
 
 ### Indexer and notifications
-Celery beat runs two scheduled tasks (`worker` executes them, `beat` schedules them; run exactly one beat):
-- **`indexer.index_all_chains`** (every 15 s) reads the contract's logs with web3.py and stores every event in Postgres.
+There are no background workers. An external scheduler (cron-job.org in production, `npm run backend:tick:watch` locally) calls **`POST /internal/tick`** every minute
+with the `X-Tick-Secret` header (compared in constant time; without `TICK_SECRET` set the endpoint answers 503). One call is one bounded batch (about 24 s) of plain function calls:
+1. **Index** (`indexer.runner`): reads the contract's logs with web3.py and stores every event in Postgres.
+  - *Bounded:* it stops starting new block ranges when its share of the time budget is used, and carries on from `last_block` next minute.
   - *Idempotent:* a log is identified by (chain, tx hash, log index); replaying a block range never duplicates anything.
   - *Resumable:* progress is a per-deployment `last_block`, advanced in the same transaction as the rows it covers.
   - *Final:* only blocks buried under `CONFIRMATIONS_<chain>` blocks are indexed (0 locally, 4 Sepolia, 30 Amoy), so nobody is emailed about an event that a reorg could undo.
   - *Self-healing:* if the last indexed block is no longer canonical (a deeper reorg, or a reset local chain) orphaned rows are dropped and indexing resumes from the fork point.
-- **`notifications.send_reminders`** (every 5 min) sends heartbeat-due / overdue reminders to owners and attestation-deadline reminders to guardians who have not yet responded. "Now" is the chain's clock, because that is what the contract compares against.
+2. **Notify**: new events become in-app notifications, emailed at once (Resend HTTP API).
+3. **Remind**: heartbeat-due / overdue reminders to owners, attestation-deadline reminders to guardians who have not yet responded. "Now" is the chain's clock, because that is what the contract compares against.
+4. **Escalate**: the claim-alert stages that have become due (below).
+5. **Retry** emails that failed (up to 6 attempts, within a day).
 
-New events become in-app notifications and emails (queued as separate Celery tasks that retry with backoff). Each is created at most once per person
-(unique per user and event or reminder cycle), so replays and restarts never repeat an email.
+*Safe to call twice at once:* a lease row (one compare-and-set `UPDATE`, which works behind a connection pooler) lets one call run; the other returns `{"skipped": ...}` immediately,
+and a crashed run's lease expires after a minute. Each stage is idempotent and a failing stage never stops the next. Each notification is created at most once per person
+(unique per user and event or reminder cycle), so replays and retries never repeat an email. `GET /health` reports the database and each chain's RPC (503 only if the database is down).
 
 | Event | Who is notified |
 |---|---|
@@ -126,8 +207,8 @@ New events become in-app notifications and emails (queued as separate Celery tas
 | ShareReleased | beneficiary |
 
 ### Claim alerts (owner escalation)
-When a claim is raised the owner must find out fast, because one check-in cancels it. `alerts.escalate_claim` runs right after the `ClaimRaised` event is processed and
-`alerts.run_escalations` (beat, every 5 min) runs whatever has become due, so everything below is idempotent and retried:
+When a claim is raised the owner must find out fast, because one check-in cancels it. The owner's email goes out in the same tick that indexes the `ClaimRaised` event, and
+every later tick runs whatever has become due, so everything below is idempotent and retried:
 
 | When | What |
 |---|---|
@@ -140,7 +221,7 @@ When a claim is raised the owner must find out fast, because one check-in cancel
   owner's wallet counts, and another wallet is told to switch. Closed, cancelled, finalized or already-checked-in claims stop all escalation.
 * **Settings** (Account page): email on/off, SMS on/off, and contact verification by code. Email alerts go to the address on file even if unverified (better to reach you than
   to stay silent); SMS goes only to a verified number, because a mistyped number could text a stranger.
-* **Twilio.** Set `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER` in `backend/.env`. Without them SMS alerts and phone verification are off (the Account page says so).
+* **Twilio.** Off by default. Set `SMS_ENABLED=true` and `TWILIO_ACCOUNT_SID`, `TWILIO_AUTH_TOKEN`, `TWILIO_FROM_NUMBER`. Otherwise SMS alerts and phone verification are off (the Account page says so).
   `SMS_BACKEND` can point at another provider class (`available()` and `send(to, body)`).
 * **The log.** Every attempt is a row in `AlertLog` (kind, channel, sent/failed/skipped, short reason, provider message id, time) and one log line. Neither holds an email address,
   phone number, name, wallet address, link or message text. A failed attempt is retried until it is sent; only a sent alert stops further tries.
@@ -149,12 +230,13 @@ Only people with a Heirloom account are notified; others are skipped. The audit 
 directly if the indexer is unreachable, stalled, reporting an error, or more than 200 blocks behind.
 
 **Security notes**
-- Rate limits (Redis): nonce 30/min, verify 10/min, invite preview 30/min, invite create 30/h, resend 10/h, per client IP. Set
-  `NUM_PROXIES` to the number of reverse proxies in front of the API so IPs cannot be spoofed.
-- Cookie: httpOnly, `SameSite=Lax`, `Secure` outside `DJANGO_DEBUG`. State-changing requests whose `Origin` is not in `ALLOWED_ORIGINS` are rejected.
+- Rate limits (kept in the database cache, shared by every worker): nonce 30/min, verify 10/min, invite preview 30/min, invite create 30/h, resend 10/h, per client IP. Set
+  `NUM_PROXIES` to the number of reverse proxies in front of the API (2 behind Vercel + Render) so IPs cannot be spoofed.
+- Cookie: httpOnly, `SameSite=Lax`, `Secure` outside `DJANGO_DEBUG`. State-changing requests whose `Origin` is not in `ALLOWED_ORIGINS` are rejected; CORS allows only that origin.
+  Production settings: `DEBUG` off, `ALLOWED_HOSTS` from the environment, HSTS, HTTPS redirect, `CSRF_TRUSTED_ORIGINS`.
 - Restricting the owner to accepted contacts is enforced in the app. The contract itself accepts any address that has registered a key,
   so a modified client could still add someone else.
-- `DJANGO_DEBUG` must be `0` in any shared environment (it relaxes the cookie, returns invite links in responses, and allows an in-memory cache).
+- `DJANGO_DEBUG` must be `0` in any shared environment (it relaxes the cookie and returns invite links in responses).
 
 ## How it works
 1. **Onboarding** — connect a wallet and sign in with Ethereum, add your name and email (off-chain), then the browser generates a

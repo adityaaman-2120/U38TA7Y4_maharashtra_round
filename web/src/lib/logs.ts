@@ -11,7 +11,7 @@ export type HeirloomEvent = {
 
 type DecodedLog = { eventName: string; args?: Record<string, unknown>; blockNumber: bigint; transactionHash: Hex; logIndex: number };
 
-const CHUNK = 9_000n; // stay under public RPC getLogs range limits
+const CHUNK = BigInt(Number(process.env.NEXT_PUBLIC_LOG_CHUNK || 9000)); // stay under the RPC provider's getLogs range limit
 const cache = new Map<string, { events: HeirloomEvent[]; next: bigint }>();
 
 /** All contract events since deployment, fetched incrementally and cached per chain. */

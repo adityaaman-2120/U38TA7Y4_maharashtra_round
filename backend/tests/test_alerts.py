@@ -25,7 +25,7 @@ def link_from(body: str) -> str:
     return re.search(r"https?://\S+/alive\?\S+", body).group(0)
 
 
-@override_settings(CELERY_TASK_ALWAYS_EAGER=True, CHAIN_DIR=EMPTY_CHAIN_DIR, SMS_BACKEND="tests.fakes.FakeSms")
+@override_settings(CHAIN_DIR=EMPTY_CHAIN_DIR, SMS_BACKEND="tests.fakes.FakeSms")
 class EscalationTests(TestCase):
     def setUp(self):
         FakeSms.sent, FakeSms.configured, FakeSms.fail = [], True, False

@@ -1,4 +1,5 @@
 """Turns indexed events into notifications for the right people."""
+import logging
 from dataclasses import dataclass
 
 from django.db import transaction
@@ -7,6 +8,8 @@ from indexer.models import ChainEvent
 
 from . import derive
 from .models import Notification
+
+log = logging.getLogger(__name__)
 
 
 @dataclass(frozen=True)
@@ -125,21 +128,29 @@ def create_for_event(ev: ChainEvent) -> list[Notification]:
     return created
 
 
-def process_pending_events(limit: int = 500) -> int:
-    """Creates notifications for newly indexed events and queues their emails. Safe to run repeatedly."""
-    from alerts.tasks import escalate_claim
+def process_pending_events(limit: int = 500, deadline: float | None = None) -> int:
+    """Creates notifications for newly indexed events, emails them, and starts the owner's claim alert. Safe to run repeatedly:
+    each event is processed once, and an email that failed is retried by the scheduler's tick."""
+    import time
 
-    from .tasks import send_notification_email
+    from alerts import service as alerts
+
+    from . import delivery
 
     done = 0
     for ev in ChainEvent.objects.filter(processed=False).order_by("block_number", "log_index")[:limit]:
+        if deadline is not None and time.monotonic() >= deadline:
+            break
         with transaction.atomic():
             fresh = create_for_event(ev)
             ChainEvent.objects.filter(pk=ev.pk).update(processed=True)
-        for n in fresh:  # queued only once the rows are committed, so a worker can always find them
-            if n.kind != "claim_raised_owner":  # the owner's email is the alerts module's: it carries the one-time check-in link
-                send_notification_email.delay(n.pk)
+        for n in fresh:  # sent only once the rows are committed
+            if n.kind not in delivery.NOT_EMAILED_HERE:
+                delivery.deliver(n)
         if ev.event_name == "ClaimRaised":
-            escalate_claim.delay(ev.pk)
+            try:
+                alerts.escalate_event(ev.pk)  # the owner's email goes out now; later stages and any retry run on the next ticks
+            except Exception as e:
+                log.warning("claim alert failed for event %s: %s", ev.pk, type(e).__name__)
         done += 1
     return done
