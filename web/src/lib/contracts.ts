@@ -1894,6 +1894,13 @@ export const heirloomDeployments = {
     "anonAadhaar": "0x5FbDB2315678afecb367f032d93F642f64180aa3",
     "anonAadhaarMode": "mock",
     "nullifierSeed": "125261277553436191029282538372828965788342804403891041579222138205543842663"
+  },
+  "80002": {
+    "address": "0xc0b1A6aA335aEca695B7165Fc220FA9193FCD62C",
+    "startBlock": 49499024,
+    "anonAadhaar": "0x432661857fC0f46709a325c1D258F90B54882994",
+    "anonAadhaarMode": "test",
+    "nullifierSeed": "125261277553436191029282538372828965788342804403891041579222138205543842663"
   }
 } as const;
 
